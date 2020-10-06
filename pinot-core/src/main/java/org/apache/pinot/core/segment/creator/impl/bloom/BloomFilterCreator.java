@@ -23,7 +23,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import org.apache.pinot.core.bloom.BloomFilter;
-import org.apache.pinot.core.bloom.BloomFilterUtil;
 import org.apache.pinot.core.bloom.SegmentBloomFilterFactory;
 import org.apache.pinot.core.segment.creator.impl.V1Constants;
 
@@ -39,17 +38,18 @@ import org.apache.pinot.core.segment.creator.impl.V1Constants;
  *    0.45 when the filter size is 1MB.
  */
 public class BloomFilterCreator implements AutoCloseable {
-  private static double DEFAULT_MAX_FALSE_POS_PROBABILITY = 0.05;
-  private static int MB_IN_BITS = 8388608;
+  private static final double DEFAULT_MAX_FALSE_POS_PROBABILITY = 0.001;
 
-  private BloomFilter _bloomFilter;
-  private File _bloomFilterFile;
+  private final BloomFilter _bloomFilter;
+  private final File _bloomFilterFile;
 
   public BloomFilterCreator(File indexDir, String columnName, int cardinality) {
+    _bloomFilter = SegmentBloomFilterFactory.createSegmentBloomFilter(cardinality, DEFAULT_MAX_FALSE_POS_PROBABILITY);
     _bloomFilterFile = new File(indexDir, columnName + V1Constants.Indexes.BLOOM_FILTER_FILE_EXTENSION);
-    double maxFalsePosProbability = BloomFilterUtil
-        .computeMaxFalsePositiveProbabilityForNumBits(cardinality, MB_IN_BITS, DEFAULT_MAX_FALSE_POS_PROBABILITY);
-    _bloomFilter = SegmentBloomFilterFactory.createSegmentBloomFilter(cardinality, maxFalsePosProbability);
+  }
+
+  public void add(Object input) {
+    _bloomFilter.add(input.toString());
   }
 
   @Override
@@ -60,9 +60,5 @@ public class BloomFilterCreator implements AutoCloseable {
       outputStream.writeInt(_bloomFilter.getVersion());
       _bloomFilter.writeTo(outputStream);
     }
-  }
-
-  public void add(Object input) {
-    _bloomFilter.add(input.toString());
   }
 }
