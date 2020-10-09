@@ -22,6 +22,8 @@ import com.google.common.base.Preconditions;
 import io.confluent.kafka.schemaregistry.client.CachedSchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.SchemaRegistryClient;
 import io.confluent.kafka.schemaregistry.client.rest.RestService;
+import io.confluent.kafka.schemaregistry.client.security.basicauth.BasicAuthCredentialProvider;
+import io.confluent.kafka.schemaregistry.client.security.basicauth.UserInfoCredentialProvider;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -80,6 +82,9 @@ public class KafkaConfluentSchemaRegistryAvroMessageDecoder implements StreamMes
       }
     }
 
+    BasicAuthCredentialProvider basicAuthCredentialProvider = new UserInfoCredentialProvider();
+    basicAuthCredentialProvider.configure(configs);
+    restService.setBasicAuthCredentialProvider(basicAuthCredentialProvider);
 
     if (!sslConfigs.isEmpty()) {
       SslFactory sslFactory = new SslFactory(Mode.CLIENT);
