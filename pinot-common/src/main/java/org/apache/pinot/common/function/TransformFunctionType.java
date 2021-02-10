@@ -45,6 +45,9 @@ public enum TransformFunctionType {
   LESS_THAN("less_than"),
   LESS_THAN_OR_EQUAL("less_than_or_equal"),
 
+  AND("and"),
+  OR("or"),
+
   CAST("cast"),
   CASE("case"),
   JSONEXTRACTSCALAR("jsonExtractScalar"),
@@ -60,6 +63,7 @@ public enum TransformFunctionType {
   VALUEIN("valueIn"),
   MAPVALUE("mapValue"),
   INIDSET("inIdSet"),
+  LOOKUP("lookUp"),
   GROOVY("groovy"),
   // Special type for annotation based scalar functions
   SCALAR("scalar"),

@@ -22,6 +22,8 @@ import org.apache.pinot.core.geospatial.GeometryUtils;
 import org.apache.pinot.core.geospatial.serde.GeometrySerializer;
 import org.apache.pinot.spi.annotations.ScalarFunction;
 import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.Geometry;
+import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.io.WKTWriter;
 
 
@@ -44,6 +46,23 @@ public class ScalarFunctions {
   }
 
   /**
+   * Creates a point.
+   *
+   * @param x x
+   * @param y y
+   * @param isGeography if it's geography
+   * @return the created point
+   */
+  @ScalarFunction
+  public static byte[] stPoint(double x, double y, int isGeography) {
+    Point point = GeometryUtils.GEOMETRY_FACTORY.createPoint(new Coordinate(x, y));
+    if (isGeography > 0) {
+      GeometryUtils.setGeography(point);
+    }
+    return GeometrySerializer.serialize(point);
+  }
+
+  /**
    * Saves the geometry object as WKT format.
    *
    * @param bytes the serialized geometry object
@@ -53,5 +72,31 @@ public class ScalarFunctions {
   public static String stAsText(byte[] bytes) {
     WKTWriter writer = new WKTWriter();
     return writer.write(GeometrySerializer.deserialize(bytes));
+  }
+
+  /**
+   * Converts a Geometry object to a spherical geography object.
+   *
+   * @param bytes the serialized geometry object
+   * @return the geographical object
+   */
+  @ScalarFunction
+  public static byte[] toSphericalGeography(byte[] bytes) {
+    Geometry geometry = GeometrySerializer.deserialize(bytes);
+    GeometryUtils.setGeography(geometry);
+    return GeometrySerializer.serialize(geometry);
+  }
+
+  /**
+   * Converts a spherical geographical object to a Geometry object.
+   *
+   * @param bytes the serialized geographical object
+   * @return the geometry object
+   */
+  @ScalarFunction
+  public static byte[] toGeometry(byte[] bytes) {
+    Geometry geometry = GeometrySerializer.deserialize(bytes);
+    GeometryUtils.setGeometry(geometry);
+    return GeometrySerializer.serialize(geometry);
   }
 }

@@ -22,7 +22,9 @@ import javax.annotation.Nullable;
 import org.apache.pinot.core.segment.index.readers.BloomFilterReader;
 import org.apache.pinot.core.segment.index.readers.Dictionary;
 import org.apache.pinot.core.segment.index.readers.ForwardIndexReader;
+import org.apache.pinot.core.segment.index.readers.H3IndexReader;
 import org.apache.pinot.core.segment.index.readers.InvertedIndexReader;
+import org.apache.pinot.core.segment.index.readers.JsonIndexReader;
 import org.apache.pinot.core.segment.index.readers.NullValueVectorReader;
 import org.apache.pinot.core.segment.index.readers.TextIndexReader;
 
@@ -66,6 +68,24 @@ public interface DataSource {
    */
   @Nullable
   TextIndexReader getTextIndex();
+
+  /**
+   * Returns the FST index for the column if exists, or {@code null} if not.
+   */
+  @Nullable
+  TextIndexReader getFSTIndex();
+
+  /**
+   * Returns the json index for the column if exists, or {@code null} if not.
+   */
+  @Nullable
+  JsonIndexReader getJsonIndex();
+
+  /**
+   * Returns the H3 index for the geospatial column if exists, or {@code null} if not.
+   */
+  @Nullable
+  H3IndexReader getH3Index();
 
   /**
    * Returns the bloom filter for the column if exists, or {@code null} if not.

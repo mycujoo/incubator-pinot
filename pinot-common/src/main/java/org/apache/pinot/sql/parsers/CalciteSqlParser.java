@@ -47,11 +47,13 @@ import org.apache.calcite.sql.parser.SqlParseException;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.parser.babel.SqlBabelParserImpl;
 import org.apache.calcite.sql.validate.SqlConformanceEnum;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.pinot.common.function.AggregationFunctionType;
 import org.apache.pinot.common.function.FunctionDefinitionRegistry;
 import org.apache.pinot.common.function.FunctionInfo;
 import org.apache.pinot.common.function.FunctionInvoker;
 import org.apache.pinot.common.function.FunctionRegistry;
+import org.apache.pinot.common.function.TransformFunctionType;
 import org.apache.pinot.common.request.DataSource;
 import org.apache.pinot.common.request.Expression;
 import org.apache.pinot.common.request.ExpressionType;
@@ -157,25 +159,11 @@ public class CalciteSqlParser {
       return;
     }
     // Sanity check group by query: All non-aggregate expression in selection list should be also included in group by list.
+    Set<Expression> groupByExprs = new HashSet<>(pinotQuery.getGroupByList());
     for (Expression selectExpression : pinotQuery.getSelectList()) {
-      if (!isAggregateExpression(selectExpression)) {
-        boolean foundInGroupByClause = false;
-        Expression selectionToCheck;
-        if (selectExpression.getFunctionCall() != null && selectExpression.getFunctionCall().getOperator()
-            .equalsIgnoreCase(SqlKind.AS.toString())) {
-          selectionToCheck = selectExpression.getFunctionCall().getOperands().get(0);
-        } else {
-          selectionToCheck = selectExpression;
-        }
-        for (Expression groupByExpression : pinotQuery.getGroupByList()) {
-          if (groupByExpression.equals(selectionToCheck)) {
-            foundInGroupByClause = true;
-          }
-        }
-        if (!foundInGroupByClause) {
-          throw new SqlCompilationException(
-              "'" + RequestUtils.prettyPrint(selectionToCheck) + "' should appear in GROUP BY clause.");
-        }
+      if (!isAggregateExpression(selectExpression) && expressionOutsideGroupByList(selectExpression, groupByExprs)) {
+        throw new SqlCompilationException(
+            "'" + RequestUtils.prettyPrint(selectExpression) + "' should appear in GROUP BY clause.");
       }
     }
     // Sanity check on group by clause shouldn't contain aggregate expression.
@@ -185,6 +173,28 @@ public class CalciteSqlParser {
             + "' is not allowed in GROUP BY clause.");
       }
     }
+  }
+
+  /**
+   * Check recursively if an expression contains any reference not appearing in the GROUP BY clause.
+   */
+  private static boolean expressionOutsideGroupByList(Expression expr, Set<Expression> groupByExprs) {
+    // return early for Literal, Aggregate and if we have an exact match
+    if (expr.getType() == ExpressionType.LITERAL || isAggregateExpression(expr) || groupByExprs.contains(expr)) {
+      return false;
+    }
+
+    final Function funcExpr = expr.getFunctionCall();
+    // function expression
+    if (funcExpr != null) {
+      // for Alias function, check the actual value
+      if (funcExpr.getOperator().equalsIgnoreCase(SqlKind.AS.toString())) {
+        return expressionOutsideGroupByList(funcExpr.getOperands().get(0), groupByExprs);
+      }
+      // Expression is invalid if any of its children is invalid
+      return funcExpr.getOperands().stream().anyMatch(e -> expressionOutsideGroupByList(e, groupByExprs));
+    }
+    return true;
   }
 
   private static boolean isAggregateExpression(Expression expression) {
@@ -343,6 +353,9 @@ public class CalciteSqlParser {
     // Invoke compilation time functions
     invokeCompileTimeFunctions(pinotQuery);
 
+    // Rewrite Selection list
+    rewriteSelections(pinotQuery.getSelectList());
+
     // Update Predicate Comparison
     Expression filterExpression = pinotQuery.getFilterExpression();
     if (filterExpression != null) {
@@ -353,6 +366,9 @@ public class CalciteSqlParser {
       pinotQuery.setHavingExpression(updateComparisonPredicate(havingExpression));
     }
 
+    // Update Ordinals
+    applyOrdinals(pinotQuery);
+
     // Rewrite GroupBy to Distinct
     rewriteNonAggregationGroupByToDistinct(pinotQuery);
 
@@ -362,6 +378,107 @@ public class CalciteSqlParser {
 
     // Validate
     validate(aliasMap, pinotQuery);
+  }
+
+  private static void applyOrdinals(PinotQuery pinotQuery) {
+    // handle GROUP BY clause
+    for (int i = 0; i < pinotQuery.getGroupByListSize(); i++) {
+      final Expression groupByExpr = pinotQuery.getGroupByList().get(i);
+      if (groupByExpr.isSetLiteral() && groupByExpr.getLiteral().isSetLongValue()) {
+        final int ordinal = (int) groupByExpr.getLiteral().getLongValue();
+        pinotQuery.getGroupByList().set(i, getExpressionFromOrdinal(pinotQuery.getSelectList(), ordinal));
+      }
+    }
+
+    // handle ORDER BY clause
+    for (int i = 0; i < pinotQuery.getOrderByListSize(); i++) {
+      final Expression orderByExpr = pinotQuery.getOrderByList().get(i).getFunctionCall().getOperands().get(0);
+      if (orderByExpr.isSetLiteral() && orderByExpr.getLiteral().isSetLongValue()) {
+        final int ordinal = (int) orderByExpr.getLiteral().getLongValue();
+        pinotQuery.getOrderByList().get(i).getFunctionCall()
+            .setOperands(Arrays.asList(getExpressionFromOrdinal(pinotQuery.getSelectList(), ordinal)));
+      }
+    }
+  }
+
+  private static Expression getExpressionFromOrdinal(List<Expression> selectList, int ordinal) {
+    if (ordinal > 0 && ordinal <= selectList.size()) {
+      final Expression expression = selectList.get(ordinal - 1);
+      // If the expression has AS, return the left operand.
+      if (expression.isSetFunctionCall() && expression.getFunctionCall().getOperator().equals(SqlKind.AS.name())) {
+        return expression.getFunctionCall().getOperands().get(0);
+      }
+      return expression;
+    } else {
+      throw new SqlCompilationException(
+          String.format("Expected Ordinal value to be between 1 and %d.", selectList.size()));
+    }
+  }
+
+  private static void rewriteSelections(List<Expression> selectList) {
+    for (Expression expression : selectList) {
+      // Rewrite aggregation
+      tryToRewriteArrayFunction(expression);
+    }
+  }
+
+  private static void tryToRewriteArrayFunction(Expression expression) {
+    if (!expression.isSetFunctionCall()) {
+      return;
+    }
+    Function functionCall = expression.getFunctionCall();
+    switch (canonicalize(functionCall.getOperator())) {
+      case "sum":
+        if (functionCall.getOperands().size() != 1) {
+          return;
+        }
+        if (functionCall.getOperands().get(0).isSetFunctionCall()) {
+          Function innerFunction = functionCall.getOperands().get(0).getFunctionCall();
+          if (isSameFunction(innerFunction.getOperator(), TransformFunctionType.ARRAYSUM.getName())) {
+            Function sumMvFunc = new Function(AggregationFunctionType.SUMMV.getName());
+            sumMvFunc.setOperands(innerFunction.getOperands());
+            expression.setFunctionCall(sumMvFunc);
+          }
+        }
+        return;
+      case "min":
+        if (functionCall.getOperands().size() != 1) {
+          return;
+        }
+        if (functionCall.getOperands().get(0).isSetFunctionCall()) {
+          Function innerFunction = functionCall.getOperands().get(0).getFunctionCall();
+          if (isSameFunction(innerFunction.getOperator(), TransformFunctionType.ARRAYMIN.getName())) {
+            Function sumMvFunc = new Function(AggregationFunctionType.MINMV.getName());
+            sumMvFunc.setOperands(innerFunction.getOperands());
+            expression.setFunctionCall(sumMvFunc);
+          }
+        }
+        return;
+      case "max":
+        if (functionCall.getOperands().size() != 1) {
+          return;
+        }
+        if (functionCall.getOperands().get(0).isSetFunctionCall()) {
+          Function innerFunction = functionCall.getOperands().get(0).getFunctionCall();
+          if (isSameFunction(innerFunction.getOperator(), TransformFunctionType.ARRAYMAX.getName())) {
+            Function sumMvFunc = new Function(AggregationFunctionType.MAXMV.getName());
+            sumMvFunc.setOperands(innerFunction.getOperands());
+            expression.setFunctionCall(sumMvFunc);
+          }
+        }
+        return;
+    }
+    for (Expression operand : functionCall.getOperands()) {
+      tryToRewriteArrayFunction(operand);
+    }
+  }
+
+  private static String canonicalize(String functionName) {
+    return StringUtils.remove(functionName, '_').toLowerCase();
+  }
+
+  private static boolean isSameFunction(String function1, String function2) {
+    return canonicalize(function1).equals(canonicalize(function2));
   }
 
   /**
@@ -412,10 +529,7 @@ public class CalciteSqlParser {
   }
 
   private static boolean isAsFunction(Expression expression) {
-    if (expression.getFunctionCall() != null && expression.getFunctionCall().getOperator().equalsIgnoreCase("AS")) {
-      return true;
-    }
-    return false;
+    return expression.getFunctionCall() != null && expression.getFunctionCall().getOperator().equalsIgnoreCase("AS");
   }
 
   private static void invokeCompileTimeFunctions(PinotQuery pinotQuery) {
@@ -549,10 +663,15 @@ public class CalciteSqlParser {
 
   private static void applyAlias(Map<Identifier, Expression> aliasMap, Expression expression) {
     Identifier identifierKey = expression.getIdentifier();
-    if (identifierKey != null && aliasMap.containsKey(identifierKey)) {
+    if (identifierKey != null) {
       Expression aliasExpression = aliasMap.get(identifierKey);
-      expression.setType(aliasExpression.getType()).setIdentifier(aliasExpression.getIdentifier())
-          .setFunctionCall(aliasExpression.getFunctionCall()).setLiteral(aliasExpression.getLiteral());
+      if (aliasExpression != null) {
+        expression.setType(aliasExpression.getType());
+        expression.setIdentifier(aliasExpression.getIdentifier());
+        expression.setFunctionCall(aliasExpression.getFunctionCall());
+        expression.setLiteral(aliasExpression.getLiteral());
+      }
+      return;
     }
     Function function = expression.getFunctionCall();
     if (function != null) {
@@ -647,11 +766,9 @@ public class CalciteSqlParser {
   private static Expression convertDistinctAndSelectListToFunctionExpression(SqlNodeList selectList) {
     String functionName = AggregationFunctionType.DISTINCT.getName();
     Expression functionExpression = RequestUtils.getFunctionExpression(functionName);
-    Iterator<SqlNode> iterator = selectList.iterator();
-    while (iterator.hasNext()) {
-      SqlNode next = iterator.next();
-      Expression columnExpression = toExpression(next);
-      if (columnExpression.getType() == ExpressionType.IDENTIFIER && columnExpression.getIdentifier().name
+    for (SqlNode node : selectList) {
+      Expression columnExpression = toExpression(node);
+      if (columnExpression.getType() == ExpressionType.IDENTIFIER && columnExpression.getIdentifier().getName()
           .equals("*")) {
         throw new SqlCompilationException(
             "Syntax error: Pinot currently does not support DISTINCT with *. Please specify each column name after DISTINCT keyword");

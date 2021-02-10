@@ -18,9 +18,29 @@
  */
 package org.apache.pinot.minion.executor;
 
+import org.apache.pinot.core.common.MinionConstants;
+import org.apache.pinot.spi.annotations.minion.TaskExecutorFactory;
+
+
+/**
+ * Factory for creating {@link RealtimeToOfflineSegmentsTaskExecutor} tasks
+ */
+@TaskExecutorFactory
 public class RealtimeToOfflineSegmentsTaskExecutorFactory implements PinotTaskExecutorFactory {
+  private MinionTaskZkMetadataManager _zkMetadataManager;
+
+  @Override
+  public void init(MinionTaskZkMetadataManager zkMetadataManager) {
+    _zkMetadataManager = zkMetadataManager;
+  }
+
+  @Override
+  public String getTaskType() {
+    return MinionConstants.RealtimeToOfflineSegmentsTask.TASK_TYPE;
+  }
+
   @Override
   public PinotTaskExecutor create() {
-    return new RealtimeToOfflineSegmentsTaskExecutor();
+    return new RealtimeToOfflineSegmentsTaskExecutor(_zkMetadataManager);
   }
 }

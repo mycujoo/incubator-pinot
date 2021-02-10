@@ -23,7 +23,9 @@ import org.apache.pinot.core.segment.index.column.ColumnIndexContainer;
 import org.apache.pinot.core.segment.index.readers.BloomFilterReader;
 import org.apache.pinot.core.segment.index.readers.Dictionary;
 import org.apache.pinot.core.segment.index.readers.ForwardIndexReader;
+import org.apache.pinot.core.segment.index.readers.H3IndexReader;
 import org.apache.pinot.core.segment.index.readers.InvertedIndexReader;
+import org.apache.pinot.core.segment.index.readers.JsonIndexReader;
 import org.apache.pinot.core.segment.index.readers.NullValueVectorReaderImpl;
 import org.apache.pinot.core.segment.index.readers.TextIndexReader;
 
@@ -60,6 +62,21 @@ public class VirtualColumnIndexContainer implements ColumnIndexContainer {
 
   @Override
   public TextIndexReader getTextIndex() {
+    return null;
+  }
+
+  @Override
+  public TextIndexReader getFSTIndex() {
+    return null;
+  }
+
+  @Override
+  public JsonIndexReader getJsonIndex() {
+    return null;
+  }
+
+  @Override
+  public H3IndexReader getH3Index() {
     return null;
   }
 

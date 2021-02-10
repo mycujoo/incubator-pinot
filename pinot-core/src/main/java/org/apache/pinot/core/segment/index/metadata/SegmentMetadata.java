@@ -19,6 +19,7 @@
 package org.apache.pinot.core.segment.index.metadata;
 
 import java.io.File;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.apache.pinot.spi.annotations.InterfaceAudience;
 import org.apache.pinot.spi.data.Schema;
@@ -32,6 +33,10 @@ import org.joda.time.Interval;
 @InterfaceAudience.Private
 public interface SegmentMetadata {
 
+  /**
+   * Returns the raw table name (without the type suffix).
+   */
+  @Deprecated
   String getTableName();
 
   String getTimeColumn();
@@ -107,4 +112,6 @@ public interface SegmentMetadata {
   char getPaddingCharacter();
 
   boolean close();
+
+  Map<String, String> getCustomMap();
 }

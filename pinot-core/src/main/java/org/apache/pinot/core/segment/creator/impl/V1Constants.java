@@ -37,6 +37,9 @@ public class V1Constants {
     public static final String UNSORTED_MV_FORWARD_INDEX_FILE_EXTENSION = ".mv.fwd";
     public static final String BITMAP_INVERTED_INDEX_FILE_EXTENSION = ".bitmap.inv";
     public static final String BITMAP_RANGE_INDEX_FILE_EXTENSION = ".bitmap.range";
+    public static final String FST_INDEX_FILE_EXTENSION = ".lucene.fst";
+    public static final String JSON_INDEX_FILE_EXTENSION = ".json.idx";
+    public static final String H3_INDEX_FILE_EXTENSION = ".h3.idx";
     public static final String BLOOM_FILTER_FILE_EXTENSION = ".bloom";
     public static final String NULLVALUE_VECTOR_FILE_EXTENSION = ".bitmap.nullvalue";
   }
@@ -62,6 +65,8 @@ public class V1Constants {
       public static final String DATETIME_COLUMNS = "segment.datetime.column.names";
       public static final String SEGMENT_TOTAL_DOCS = "segment.total.docs";
       public static final String SEGMENT_PADDING_CHARACTER = "segment.padding.character";
+
+      public static final String CUSTOM_SUBSET = "custom";
     }
 
     public static class Column {
@@ -75,6 +80,8 @@ public class V1Constants {
       public static final String HAS_NULL_VALUE = "hasNullValue";
       public static final String HAS_DICTIONARY = "hasDictionary";
       public static final String HAS_INVERTED_INDEX = "hasInvertedIndex";
+      public static final String HAS_FST_INDEX = "hasFSTIndex";
+      public static final String HAS_JSON_INDEX = "hasJsonIndex";
       public static final String IS_SINGLE_VALUED = "isSingleValues";
       public static final String MAX_MULTI_VALUE_ELEMTS = "maxNumberOfMultiValues";
       public static final String TOTAL_NUMBER_OF_ENTRIES = "totalNumberOfEntries";

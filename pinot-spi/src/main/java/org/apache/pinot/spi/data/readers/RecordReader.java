@@ -21,6 +21,7 @@ package org.apache.pinot.spi.data.readers;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.Set;
 import javax.annotation.Nullable;
 
@@ -30,13 +31,13 @@ import javax.annotation.Nullable;
  * Pinot segments will be generated from {@link GenericRow}s.
  * <p>NOTE: for time column, record reader should be able to read both incoming and outgoing time
  */
-public interface RecordReader extends Closeable {
+public interface RecordReader extends Closeable, Serializable {
 
   /**
    * Initializes the record reader with data file, schema and (optional) record reader config.
    *
    * @param dataFile Data file
-   * @param fieldsToRead The fields to read from the data file. If blank, reads all fields (only for AVRO/JSON currently)
+   * @param fieldsToRead The fields to read from the data file. If blank, reads all fields.
    * @param recordReaderConfig Config for the reader specific to the format. e.g. delimiter for csv format etc
    * @throws IOException If an I/O error occurs
    */

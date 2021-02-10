@@ -19,6 +19,8 @@
 package org.apache.pinot.tools.admin;
 
 import java.lang.reflect.Field;
+import java.util.Map;
+import org.apache.pinot.common.Utils;
 import org.apache.pinot.spi.plugin.PluginManager;
 import org.apache.pinot.tools.Command;
 import org.apache.pinot.tools.admin.command.AddSchemaCommand;
@@ -32,6 +34,7 @@ import org.apache.pinot.tools.admin.command.CreateSegmentCommand;
 import org.apache.pinot.tools.admin.command.DeleteClusterCommand;
 import org.apache.pinot.tools.admin.command.GenerateDataCommand;
 import org.apache.pinot.tools.admin.command.GitHubEventsQuickStartCommand;
+import org.apache.pinot.tools.admin.command.ImportDataCommand;
 import org.apache.pinot.tools.admin.command.LaunchDataIngestionJobCommand;
 import org.apache.pinot.tools.admin.command.MoveReplicaGroup;
 import org.apache.pinot.tools.admin.command.OfflineSegmentIntervalCheckerCommand;
@@ -41,9 +44,11 @@ import org.apache.pinot.tools.admin.command.QuickStartCommand;
 import org.apache.pinot.tools.admin.command.RealtimeProvisioningHelperCommand;
 import org.apache.pinot.tools.admin.command.RebalanceTableCommand;
 import org.apache.pinot.tools.admin.command.SegmentProcessorFrameworkCommand;
+import org.apache.pinot.tools.admin.command.BootstrapTableCommand;
 import org.apache.pinot.tools.admin.command.ShowClusterInfoCommand;
 import org.apache.pinot.tools.admin.command.StartBrokerCommand;
 import org.apache.pinot.tools.admin.command.StartControllerCommand;
+import org.apache.pinot.tools.admin.command.StartMinionCommand;
 import org.apache.pinot.tools.admin.command.StartServiceManagerCommand;
 import org.apache.pinot.tools.admin.command.StreamGitHubEventsCommand;
 import org.apache.pinot.tools.admin.command.StartKafkaCommand;
@@ -94,12 +99,14 @@ public class PinotAdministrator {
       @SubCommand(name = "GenerateData", impl = GenerateDataCommand.class),
       @SubCommand(name = "LaunchDataIngestionJob", impl = LaunchDataIngestionJobCommand.class),
       @SubCommand(name = "CreateSegment", impl = CreateSegmentCommand.class),
+      @SubCommand(name = "ImportData", impl = ImportDataCommand.class),
       @SubCommand(name = "StartZookeeper", impl = StartZookeeperCommand.class),
       @SubCommand(name = "StartKafka", impl = StartKafkaCommand.class),
       @SubCommand(name = "StreamAvroIntoKafka", impl = StreamAvroIntoKafkaCommand.class),
       @SubCommand(name = "StartController", impl = StartControllerCommand.class),
       @SubCommand(name = "StartBroker", impl = StartBrokerCommand.class),
       @SubCommand(name = "StartServer", impl = StartServerCommand.class),
+      @SubCommand(name = "StartMinion", impl = StartMinionCommand.class),
       @SubCommand(name = "StartServiceManager", impl = StartServiceManagerCommand.class),
       @SubCommand(name = "AddTable", impl = AddTableCommand.class),
       @SubCommand(name = "ChangeTableState", impl = ChangeTableState.class),
@@ -125,6 +132,7 @@ public class PinotAdministrator {
       @SubCommand(name = "AnonymizeData", impl = AnonymizeDataCommand.class),
       @SubCommand(name = "GitHubEventsQuickStart", impl = GitHubEventsQuickStartCommand.class),
       @SubCommand(name = "StreamGitHubEvents", impl = StreamGitHubEventsCommand.class),
+      @SubCommand(name = "BootstrapTable", impl = BootstrapTableCommand.class),
       @SubCommand(name = "SegmentProcessorFramework", impl = SegmentProcessorFrameworkCommand.class)
   })
   Command _subCommand;
@@ -132,6 +140,9 @@ public class PinotAdministrator {
 
   @Option(name = "-help", required = false, help = true, aliases = {"-h", "--h", "--help"}, usage = "Print this message.")
   boolean _help = false;
+
+  @Option(name = "-version", required = false, help = true, aliases = {"-v", "--v", "--version"}, usage = "Print the version of Pinot package.")
+  boolean _version = false;
   boolean _status = false;
 
   private boolean getStatus() {
@@ -142,8 +153,9 @@ public class PinotAdministrator {
     try {
       CmdLineParser parser = new CmdLineParser(this);
       parser.parseArgument(args);
-
-      if ((_subCommand == null) || _help) {
+      if (_version) {
+        printVersion();
+      } else if ((_subCommand == null) || _help) {
         printUsage();
       } else if (_subCommand.getHelp()) {
         _subCommand.printUsage();
@@ -155,6 +167,14 @@ public class PinotAdministrator {
       LOGGER.error("Error: {}", e.getMessage());
     } catch (Exception e) {
       LOGGER.error("Exception caught: ", e);
+    }
+  }
+
+  private void printVersion() {
+    LOGGER.info("List All Pinot Component Versions:");
+    Map<String, String> componentVersions = Utils.getComponentVersions();
+    for (Map.Entry<String, String> entry : componentVersions.entrySet()) {
+      LOGGER.info("Package: {}, Version: {}", entry.getKey(), entry.getValue());
     }
   }
 

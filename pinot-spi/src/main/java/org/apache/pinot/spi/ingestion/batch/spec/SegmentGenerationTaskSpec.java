@@ -20,6 +20,9 @@ package org.apache.pinot.spi.ingestion.batch.spec;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.Serializable;
+import java.util.HashMap;
+import java.util.Map;
+import org.apache.pinot.spi.config.table.TableConfig;
 import org.apache.pinot.spi.data.Schema;
 
 
@@ -28,11 +31,13 @@ import org.apache.pinot.spi.data.Schema;
  * Note that this task creates a segment directory, not tar file.
  */
 public class SegmentGenerationTaskSpec implements Serializable {
+  public static final String CUSTOM_SUBSET = "custom";
+  public static final String CUSTOM_PREFIX = CUSTOM_SUBSET + '.';
 
   /**
    * Table config to create segment
    */
-  private JsonNode _tableConfig;
+  private TableConfig _tableConfig;
 
   /**
    * Table schema
@@ -64,11 +69,16 @@ public class SegmentGenerationTaskSpec implements Serializable {
    */
   private int _sequenceId;
 
-  public JsonNode getTableConfig() {
+  /**
+   * Custom properties set into segment metadata
+   */
+  private Map<String, String> _customProperties = new HashMap<>();
+
+  public TableConfig getTableConfig() {
     return _tableConfig;
   }
 
-  public void setTableConfig(JsonNode tableConfig) {
+  public void setTableConfig(TableConfig tableConfig) {
     _tableConfig = tableConfig;
   }
 
@@ -118,5 +128,22 @@ public class SegmentGenerationTaskSpec implements Serializable {
 
   public void setSequenceId(int sequenceId) {
     _sequenceId = sequenceId;
+  }
+
+  public void setCustomProperty(String key, String value) {
+    if (!key.startsWith(CUSTOM_PREFIX)) {
+      key = CUSTOM_PREFIX + key;
+    }
+    _customProperties.put(key, value);
+  }
+
+  public void setCustomProperties(Map<String, String> customProperties) {
+    for (String key : customProperties.keySet()) {
+      setCustomProperty(key, customProperties.get(key));
+    }
+  }
+
+  public Map<String, String> getCustomProperties() {
+    return _customProperties;
   }
 }

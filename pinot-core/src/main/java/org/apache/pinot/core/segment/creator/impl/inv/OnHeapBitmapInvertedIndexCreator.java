@@ -18,43 +18,42 @@
  */
 package org.apache.pinot.core.segment.creator.impl.inv;
 
-import com.google.common.base.Preconditions;
-import java.io.BufferedOutputStream;
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import org.apache.commons.io.FileUtils;
 import org.apache.pinot.core.segment.creator.DictionaryBasedInvertedIndexCreator;
 import org.apache.pinot.core.segment.creator.impl.V1Constants;
-import org.roaringbitmap.buffer.MutableRoaringBitmap;
+import org.roaringbitmap.Container;
+import org.roaringbitmap.RoaringBitmap;
+import org.roaringbitmap.RoaringBitmapWriter;
 
 
 /**
  * Implementation of {@link DictionaryBasedInvertedIndexCreator} that uses on-heap memory.
  */
+@SuppressWarnings("unchecked")
 public final class OnHeapBitmapInvertedIndexCreator implements DictionaryBasedInvertedIndexCreator {
   private final File _invertedIndexFile;
-  private final MutableRoaringBitmap[] _bitmaps;
+  private final RoaringBitmapWriter<RoaringBitmap>[] _bitmapWriters;
   private int _nextDocId;
 
   public OnHeapBitmapInvertedIndexCreator(File indexDir, String columnName, int cardinality) {
     _invertedIndexFile = new File(indexDir, columnName + V1Constants.Indexes.BITMAP_INVERTED_INDEX_FILE_EXTENSION);
-    _bitmaps = new MutableRoaringBitmap[cardinality];
+    RoaringBitmapWriter.Wizard<Container, RoaringBitmap> writerWizard = RoaringBitmapWriter.writer().runCompress(false);
+    _bitmapWriters = new RoaringBitmapWriter[cardinality];
     for (int i = 0; i < cardinality; i++) {
-      _bitmaps[i] = new MutableRoaringBitmap();
+      _bitmapWriters[i] = writerWizard.get();
     }
   }
 
   @Override
   public void add(int dictId) {
-    _bitmaps[dictId].add(_nextDocId++);
+    _bitmapWriters[dictId].add(_nextDocId++);
   }
 
   @Override
   public void add(int[] dictIds, int length) {
     for (int i = 0; i < length; i++) {
-      _bitmaps[dictIds[i]].add(_nextDocId);
+      _bitmapWriters[dictIds[i]].add(_nextDocId);
     }
     _nextDocId++;
   }
@@ -62,25 +61,10 @@ public final class OnHeapBitmapInvertedIndexCreator implements DictionaryBasedIn
   @Override
   public void seal()
       throws IOException {
-    try (DataOutputStream out = new DataOutputStream(
-        new BufferedOutputStream(new FileOutputStream(_invertedIndexFile)))) {
-      // Write bitmap offsets
-      int bitmapOffset = (_bitmaps.length + 1) * Integer.BYTES;
-      out.writeInt(bitmapOffset);
-      for (MutableRoaringBitmap bitmap : _bitmaps) {
-        bitmapOffset += bitmap.serializedSizeInBytes();
-        // Check for int overflow
-        Preconditions.checkState(bitmapOffset > 0, "Inverted index file: %s exceeds 2GB limit", _invertedIndexFile);
-        out.writeInt(bitmapOffset);
+    try (BitmapInvertedIndexWriter writer = new BitmapInvertedIndexWriter(_invertedIndexFile, _bitmapWriters.length)) {
+      for (RoaringBitmapWriter<RoaringBitmap> bitmapWriter : _bitmapWriters) {
+        writer.add(bitmapWriter.get());
       }
-
-      // Write bitmap data
-      for (MutableRoaringBitmap bitmap : _bitmaps) {
-        bitmap.serialize(out);
-      }
-    } catch (Exception e) {
-      FileUtils.deleteQuietly(_invertedIndexFile);
-      throw e;
     }
   }
 

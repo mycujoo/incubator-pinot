@@ -36,11 +36,14 @@ import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.pinot.common.segment.ReadMode;
 import org.apache.pinot.core.segment.creator.impl.text.LuceneTextIndexCreator;
+import org.apache.pinot.core.segment.creator.impl.inv.text.LuceneFSTIndexCreator;
 import org.apache.pinot.core.segment.index.metadata.SegmentMetadataImpl;
 import org.apache.pinot.core.segment.memory.PinotDataBuffer;
 import org.apache.pinot.spi.env.CommonsConfigurationUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static org.apache.pinot.core.segment.creator.impl.V1Constants.Indexes.FST_INDEX_FILE_EXTENSION;
 
 
 // There are a couple of un-addressed issues right now
@@ -177,7 +180,7 @@ class SingleFileIndexDirectory extends ColumnIndexDirectory {
     }
   }
 
-  private void validateMagicMarker(PinotDataBuffer buffer, int startOffset) {
+  private void validateMagicMarker(PinotDataBuffer buffer, long startOffset) {
     long actualMarkerValue = buffer.getLong(startOffset);
     if (actualMarkerValue != MAGIC_MARKER) {
       LOGGER.error("Missing magic marker in index file: {} at position: {}", indexFile, startOffset);
@@ -289,10 +292,10 @@ class SingleFileIndexDirectory extends ColumnIndexDirectory {
     }
     allocBuffers.add(buffer);
 
-    int prevSlicePoint = 0;
+    long prevSlicePoint = 0;
     for (Long fileOffset : offsetAccum) {
       IndexEntry entry = startOffsets.get(fileOffset);
-      int endSlicePoint = prevSlicePoint + (int) entry.size;
+      long endSlicePoint = prevSlicePoint + entry.size;
       validateMagicMarker(buffer, prevSlicePoint);
       PinotDataBuffer viewBuffer = buffer.view(prevSlicePoint + MAGIC_MARKER_SIZE_BYTES, endSlicePoint);
       entry.buffer = viewBuffer;

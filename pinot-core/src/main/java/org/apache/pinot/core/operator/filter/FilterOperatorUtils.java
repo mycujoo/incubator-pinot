@@ -26,7 +26,6 @@ import javax.annotation.Nullable;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.pinot.core.common.DataSource;
 import org.apache.pinot.core.operator.filter.predicate.PredicateEvaluator;
-import org.apache.pinot.core.operator.filter.predicate.RangePredicateEvaluatorFactory.OfflineDictionaryBasedRangePredicateEvaluator;
 import org.apache.pinot.core.query.request.context.predicate.Predicate;
 
 
@@ -48,20 +47,31 @@ public class FilterOperatorUtils {
       return new MatchAllFilterOperator(numDocs);
     }
 
+    // Currently sorted index based filtering is supported only for
+    // dictionary encoded columns. The on-disk segment metadata
+    // will indicate if the column is sorted or not regardless of
+    // whether it is raw or dictionary encoded. Here when creating
+    // the filter operator, we need to make sure that sort filter
+    // operator is used only if the column is sorted and has dictionary.
     Predicate.Type predicateType = predicateEvaluator.getPredicateType();
     if (predicateType == Predicate.Type.RANGE) {
-      if (dataSource.getDataSourceMetadata().isSorted()) {
+      if (dataSource.getDataSourceMetadata().isSorted() && dataSource.getDictionary() != null) {
         return new SortedIndexBasedFilterOperator(predicateEvaluator, dataSource, numDocs);
       }
       if (dataSource.getRangeIndex() != null) {
-        return new RangeIndexBasedFilterOperator((OfflineDictionaryBasedRangePredicateEvaluator) predicateEvaluator,
-            dataSource, numDocs);
+        return new RangeIndexBasedFilterOperator(predicateEvaluator, dataSource, numDocs);
       }
       return new ScanBasedFilterOperator(predicateEvaluator, dataSource, numDocs);
     } else if (predicateType == Predicate.Type.REGEXP_LIKE) {
+      if (dataSource.getFSTIndex() != null && dataSource.getDataSourceMetadata().isSorted()) {
+        return new SortedIndexBasedFilterOperator(predicateEvaluator, dataSource, numDocs);
+      }
+      if (dataSource.getFSTIndex() != null && dataSource.getInvertedIndex() != null) {
+        return new BitmapBasedFilterOperator(predicateEvaluator, dataSource, numDocs);
+      }
       return new ScanBasedFilterOperator(predicateEvaluator, dataSource, numDocs);
     } else {
-      if (dataSource.getDataSourceMetadata().isSorted()) {
+      if (dataSource.getDataSourceMetadata().isSorted() && dataSource.getDictionary() != null) {
         return new SortedIndexBasedFilterOperator(predicateEvaluator, dataSource, numDocs);
       }
       if (dataSource.getInvertedIndex() != null) {
@@ -145,20 +155,18 @@ public class FilterOperatorUtils {
         if (filterOperator instanceof BitmapBasedFilterOperator) {
           return 1;
         }
-        if (filterOperator instanceof RangeIndexBasedFilterOperator) {
+        if (filterOperator instanceof RangeIndexBasedFilterOperator || filterOperator instanceof TextMatchFilterOperator
+            || filterOperator instanceof JsonMatchFilterOperator || filterOperator instanceof H3IndexFilterOperator) {
           return 2;
         }
-        if (filterOperator instanceof TextMatchFilterOperator) {
+        if (filterOperator instanceof AndFilterOperator) {
           return 3;
         }
-        if (filterOperator instanceof AndFilterOperator) {
+        if (filterOperator instanceof OrFilterOperator) {
           return 4;
         }
-        if (filterOperator instanceof OrFilterOperator) {
-          return 5;
-        }
         if (filterOperator instanceof ScanBasedFilterOperator) {
-          return getScanBasedFilterPriority((ScanBasedFilterOperator) filterOperator, 6, debugOptions);
+          return getScanBasedFilterPriority((ScanBasedFilterOperator) filterOperator, 5, debugOptions);
         }
         if (filterOperator instanceof ExpressionFilterOperator) {
           return 10;

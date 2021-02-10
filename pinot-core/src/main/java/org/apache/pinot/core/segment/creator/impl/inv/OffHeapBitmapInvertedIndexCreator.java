@@ -18,19 +18,16 @@
  */
 package org.apache.pinot.core.segment.creator.impl.inv;
 
-import com.google.common.base.Preconditions;
-import java.io.BufferedOutputStream;
 import java.io.Closeable;
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import org.apache.commons.io.FileUtils;
 import org.apache.pinot.core.segment.creator.DictionaryBasedInvertedIndexCreator;
 import org.apache.pinot.core.segment.creator.impl.V1Constants;
 import org.apache.pinot.core.segment.memory.PinotDataBuffer;
 import org.apache.pinot.spi.data.FieldSpec;
-import org.roaringbitmap.buffer.MutableRoaringBitmap;
+import org.roaringbitmap.RoaringBitmap;
+import org.roaringbitmap.RoaringBitmapWriter;
 
 
 /**
@@ -181,33 +178,18 @@ public final class OffHeapBitmapInvertedIndexCreator implements DictionaryBasedI
     }
 
     // Create bitmaps from inverted index buffers and serialize them to file
-    try (DataOutputStream offsetDataStream = new DataOutputStream(
-        new BufferedOutputStream(new FileOutputStream(_invertedIndexFile)));
-        FileOutputStream bitmapFileStream = new FileOutputStream(_invertedIndexFile);
-        DataOutputStream bitmapDataStream = new DataOutputStream(new BufferedOutputStream(bitmapFileStream))) {
-      int bitmapOffset = (_cardinality + 1) * Integer.BYTES;
-      offsetDataStream.writeInt(bitmapOffset);
-      bitmapFileStream.getChannel().position(bitmapOffset);
-
+    try (BitmapInvertedIndexWriter writer = new BitmapInvertedIndexWriter(_invertedIndexFile, _cardinality)) {
+      RoaringBitmapWriter<RoaringBitmap> bitmapWriter = RoaringBitmapWriter.writer().runCompress(false).get();
       int startIndex = 0;
       for (int dictId = 0; dictId < _cardinality; dictId++) {
-        MutableRoaringBitmap bitmap = new MutableRoaringBitmap();
         int endIndex = getInt(_invertedIndexLengthBuffer, dictId);
         for (int i = startIndex; i < endIndex; i++) {
-          bitmap.add(getInt(_invertedIndexValueBuffer, i));
+          bitmapWriter.add(getInt(_invertedIndexValueBuffer, i));
         }
+        writer.add(bitmapWriter.get());
+        bitmapWriter.reset();
         startIndex = endIndex;
-
-        // Write offset and bitmap into file
-        bitmapOffset += bitmap.serializedSizeInBytes();
-        // Check for int overflow
-        Preconditions.checkState(bitmapOffset > 0, "Inverted index file: %s exceeds 2GB limit", _invertedIndexFile);
-        offsetDataStream.writeInt(bitmapOffset);
-        bitmap.serialize(bitmapDataStream);
       }
-    } catch (Exception e) {
-      FileUtils.deleteQuietly(_invertedIndexFile);
-      throw e;
     }
   }
 

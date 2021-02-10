@@ -18,13 +18,10 @@
  */
 package org.apache.pinot.minion;
 
-import static org.apache.pinot.common.utils.CommonConstants.HTTPS_PROTOCOL;
-
+import com.yammer.metrics.core.MetricsRegistry;
 import java.io.File;
 import java.io.IOException;
-
 import javax.net.ssl.SSLContext;
-
 import org.apache.commons.io.FileUtils;
 import org.apache.helix.HelixAdmin;
 import org.apache.helix.HelixManager;
@@ -40,8 +37,9 @@ import org.apache.pinot.common.utils.CommonConstants;
 import org.apache.pinot.common.utils.NetUtil;
 import org.apache.pinot.common.utils.ServiceStatus;
 import org.apache.pinot.common.utils.fetcher.SegmentFetcherFactory;
-import org.apache.pinot.minion.events.EventObserverFactoryRegistry;
-import org.apache.pinot.minion.events.MinionEventObserverFactory;
+import org.apache.pinot.minion.event.EventObserverFactoryRegistry;
+import org.apache.pinot.minion.event.MinionEventObserverFactory;
+import org.apache.pinot.minion.executor.MinionTaskZkMetadataManager;
 import org.apache.pinot.minion.executor.PinotTaskExecutorFactory;
 import org.apache.pinot.minion.executor.TaskExecutorFactoryRegistry;
 import org.apache.pinot.minion.metrics.MinionMeter;
@@ -55,7 +53,7 @@ import org.apache.pinot.spi.services.ServiceStartable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.yammer.metrics.core.MetricsRegistry;
+import static org.apache.pinot.common.utils.CommonConstants.HTTPS_PROTOCOL;
 
 
 /**
@@ -73,16 +71,20 @@ public class MinionStarter implements ServiceStartable {
   private final TaskExecutorFactoryRegistry _taskExecutorFactoryRegistry;
   private final EventObserverFactoryRegistry _eventObserverFactoryRegistry;
 
-  public MinionStarter(String zkAddress, String helixClusterName, PinotConfiguration config)
+  public MinionStarter(String helixClusterName, String zkAddress, PinotConfiguration config)
       throws Exception {
     _config = config;
-    _instanceId = config.getProperty(CommonConstants.Helix.Instance.INSTANCE_ID_KEY,
-        CommonConstants.Helix.PREFIX_OF_MINION_INSTANCE + NetUtil.getHostAddress() + "_"
-            + CommonConstants.Minion.DEFAULT_HELIX_PORT);
+    String host = _config.getProperty(CommonConstants.Helix.KEY_OF_SERVER_NETTY_HOST,
+        _config.getProperty(CommonConstants.Helix.SET_INSTANCE_ID_TO_HOSTNAME_KEY, false) ? NetUtil
+            .getHostnameOrAddress() : NetUtil.getHostAddress());
+    int port = _config
+        .getProperty(CommonConstants.Helix.KEY_OF_MINION_PORT, CommonConstants.Minion.DEFAULT_HELIX_PORT);
+    _instanceId = _config.getProperty(CommonConstants.Helix.Instance.INSTANCE_ID_KEY, CommonConstants.Helix.PREFIX_OF_MINION_INSTANCE + host + "_" + port);
     setupHelixSystemProperties();
     _helixManager = new ZKHelixManager(helixClusterName, _instanceId, InstanceType.PARTICIPANT, zkAddress);
-    _taskExecutorFactoryRegistry = new TaskExecutorFactoryRegistry();
-    _eventObserverFactoryRegistry = new EventObserverFactoryRegistry();
+    MinionTaskZkMetadataManager minionTaskZkMetadataManager = new MinionTaskZkMetadataManager(_helixManager);
+    _taskExecutorFactoryRegistry = new TaskExecutorFactoryRegistry(minionTaskZkMetadataManager);
+    _eventObserverFactoryRegistry = new EventObserverFactoryRegistry(minionTaskZkMetadataManager);
   }
 
   private void setupHelixSystemProperties() {
@@ -98,16 +100,16 @@ public class MinionStarter implements ServiceStartable {
    * Registers a task executor factory.
    * <p>This is for pluggable task executor factories.
    */
-  public void registerTaskExecutorFactory(String taskType, PinotTaskExecutorFactory taskExecutorFactory) {
-    _taskExecutorFactoryRegistry.registerTaskExecutorFactory(taskType, taskExecutorFactory);
+  public void registerTaskExecutorFactory(PinotTaskExecutorFactory taskExecutorFactory) {
+    _taskExecutorFactoryRegistry.registerTaskExecutorFactory(taskExecutorFactory);
   }
 
   /**
    * Registers an event observer factory.
    * <p>This is for pluggable event observer factories.
    */
-  public void registerEventObserverFactory(String taskType, MinionEventObserverFactory eventObserverFactory) {
-    _eventObserverFactoryRegistry.registerEventObserverFactory(taskType, eventObserverFactory);
+  public void registerEventObserverFactory(MinionEventObserverFactory eventObserverFactory) {
+    _eventObserverFactoryRegistry.registerEventObserverFactory(eventObserverFactory);
   }
 
   @Override
@@ -141,9 +143,10 @@ public class MinionStarter implements ServiceStartable {
     File dataDir = new File(_config
         .getProperty(CommonConstants.Helix.Instance.DATA_DIR_KEY, CommonConstants.Minion.DEFAULT_INSTANCE_DATA_DIR));
     if (dataDir.exists()) {
-      FileUtils.forceDelete(dataDir);
+      FileUtils.cleanDirectory(dataDir);
+    } else {
+      FileUtils.forceMkdir(dataDir);
     }
-    FileUtils.forceMkdir(dataDir);
     minionContext.setDataDir(dataDir);
 
     // Initialize metrics
@@ -223,6 +226,12 @@ public class MinionStarter implements ServiceStartable {
     _helixManager.disconnect();
     LOGGER.info("Deregistering service status handler");
     ServiceStatus.removeServiceStatusCallback(_instanceId);
+    LOGGER.info("Clean up Minion data directory");
+    try {
+      FileUtils.cleanDirectory(MinionContext.getInstance().getDataDir());
+    } catch (IOException e) {
+      LOGGER.warn("Failed to clean up Minion data directory: {}", MinionContext.getInstance().getDataDir(), e);
+    }
     LOGGER.info("Pinot minion stopped");
   }
 

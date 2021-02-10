@@ -108,16 +108,22 @@ public class CommonConstants {
       public static final String INSTANCE_ID_KEY = "instanceId";
       public static final String DATA_DIR_KEY = "dataDir";
       public static final String ADMIN_PORT_KEY = "adminPort";
+      public static final String ADMIN_HTTPS_PORT_KEY = "adminHttpsPort";
       public static final String GRPC_PORT_KEY = "grpcPort";
+      public static final String NETTYTLS_PORT_KEY = "nettyTlsPort";
     }
 
     public static final String SET_INSTANCE_ID_TO_HOSTNAME_KEY = "pinot.set.instance.id.to.hostname";
 
     public static final String KEY_OF_SERVER_NETTY_PORT = "pinot.server.netty.port";
     public static final int DEFAULT_SERVER_NETTY_PORT = 8098;
+    public static final String KEY_OF_SERVER_NETTYTLS_PORT = Server.SERVER_NETTYTLS_PREFIX + ".port";
+    public static final int DEFAULT_SERVER_NETTYTLS_PORT = 8091;
     public static final String KEY_OF_BROKER_QUERY_PORT = "pinot.broker.client.queryPort";
     public static final int DEFAULT_BROKER_QUERY_PORT = 8099;
     public static final String KEY_OF_SERVER_NETTY_HOST = "pinot.server.netty.host";
+    public static final String KEY_OF_MINION_HOST = "pinot.minion.host";
+    public static final String KEY_OF_MINION_PORT = "pinot.minion.port";
 
     // NOTE: Helix will disconnect the manager and disable the instance if it detects flapping (too frequent disconnect
     // from ZooKeeper). Setting flapping time window to a small value can avoid this from happening. Helix ignores the
@@ -166,6 +172,18 @@ public class CommonConstants {
     public static final double DEFAULT_BROKER_MIN_RESOURCE_PERCENT_FOR_START = 100.0;
     public static final String CONFIG_OF_ENABLE_QUERY_LIMIT_OVERRIDE = "pinot.broker.enable.query.limit.override";
 
+    // Config for number of threads to use for Broker reduce-phase.
+    public static final String CONFIG_OF_MAX_REDUCE_THREADS_PER_QUERY = "pinot.broker.max.reduce.threads.per.query";
+    public static final int DEFAULT_MAX_REDUCE_THREADS_PER_QUERY =
+        Math.max(1, Math.min(10, Runtime.getRuntime().availableProcessors() / 2)); // Same logic as CombineOperatorUtils
+
+    // used for SQL GROUP BY during broker reduce
+    public static final String CONFIG_OF_BROKER_GROUPBY_TRIM_THRESHOLD = "pinot.broker.groupby.trim.threshold";
+    public static final int DEFAULT_BROKER_GROUPBY_TRIM_THRESHOLD = 1_000_000;
+
+    public static final String BROKER_TLS_PREFIX = "pinot.broker.tls";
+    public static final String BROKER_NETTYTLS_ENABLED = "pinot.broker.nettytls.enabled";
+
     public static class Request {
       public static final String PQL = "pql";
       public static final String SQL = "sql";
@@ -178,6 +196,7 @@ public class CommonConstants {
         public static final String PRESERVE_TYPE = "preserveType";
         public static final String RESPONSE_FORMAT = "responseFormat";
         public static final String GROUP_BY_MODE = "groupByMode";
+        public static final String SKIP_UPSERT = "skipUpsert";
       }
     }
   }
@@ -195,11 +214,15 @@ public class CommonConstants {
     public static final String CONFIG_OF_QUERY_EXECUTOR_TIMEOUT = "pinot.server.query.executor.timeout";
     public static final String CONFIG_OF_QUERY_EXECUTOR_CLASS = "pinot.server.query.executor.class";
     public static final String CONFIG_OF_REQUEST_HANDLER_FACTORY_CLASS = "pinot.server.requestHandlerFactory.class";
+    public static final String CONFIG_OF_NETTY_SERVER_ENABLED = "pinot.server.netty.enabled";
+    public static final boolean DEFAULT_NETTY_SERVER_ENABLED = true;
     public static final String CONFIG_OF_NETTY_PORT = "pinot.server.netty.port";
     public static final String CONFIG_OF_ENABLE_GRPC_SERVER = "pinot.server.grpc.enable";
     public static final boolean DEFAULT_ENABLE_GRPC_SERVER = false;
     public static final String CONFIG_OF_GRPC_PORT = "pinot.server.grpc.port";
     public static final int DEFAULT_GRPC_PORT = 8090;
+    public static final String CONFIG_OF_NETTYTLS_SERVER_ENABLED = "pinot.server.nettytls.enabled";
+    public static final boolean DEFAULT_NETTYTLS_SERVER_ENABLED = false;
     public static final String CONFIG_OF_ADMIN_API_PORT = "pinot.server.adminapi.port";
     public static final int DEFAULT_ADMIN_API_PORT = 8097;
 
@@ -272,6 +295,9 @@ public class CommonConstants {
 
     public static final String PINOT_SERVER_METRICS_PREFIX = "pinot.server.metrics.prefix";
 
+    public static final String SERVER_TLS_PREFIX = "pinot.server.tls";
+    public static final String SERVER_NETTYTLS_PREFIX = "pinot.server.nettytls";
+
     public static class SegmentCompletionProtocol {
       public static final String PREFIX_OF_CONFIG_OF_SEGMENT_UPLOADER = "pinot.server.segment.uploader";
 
@@ -307,7 +333,7 @@ public class CommonConstants {
     // FYI this is incorrect as it generate metrics named without a dot after pinot.controller part,
     // but we keep this default for backward compatibility in case someone relies on this format
     // see Server or Broker class for correct prefix format you should use
-    public static final String DEFAULT_METRICS_PREFIX = "pinot.controller";
+    public static final String DEFAULT_METRICS_PREFIX = "pinot.controller.";
   }
 
   public static class Minion {
@@ -356,18 +382,16 @@ public class CommonConstants {
 
     public static final String SEGMENT_NAME = "segment.name";
     public static final String SEGMENT_TYPE = "segment.type";
-    public static final String CRYPTER_NAME = "segment.crypter";
-    public static final String INDEX_VERSION = "segment.index.version";
     public static final String START_TIME = "segment.start.time";
     public static final String END_TIME = "segment.end.time";
     public static final String TIME_UNIT = "segment.time.unit";
+    public static final String INDEX_VERSION = "segment.index.version";
     public static final String TOTAL_DOCS = "segment.total.docs";
     public static final String CRC = "segment.crc";
     public static final String CREATION_TIME = "segment.creation.time";
     public static final String FLUSH_THRESHOLD_SIZE = "segment.flush.threshold.size";
     public static final String FLUSH_THRESHOLD_TIME = "segment.flush.threshold.time";
     public static final String PARTITION_METADATA = "segment.partition.metadata";
-    public static final String PEER_SEGMENT_DOWNLOAD_SCHEME = "peer://";
     /**
      * This field is used for parallel push protection to lock the segment globally.
      * We put the segment upload start timestamp so that if the previous push failed without unlock the segment, the
@@ -375,12 +399,17 @@ public class CommonConstants {
      */
     public static final String SEGMENT_UPLOAD_START_TIME = "segment.upload.start.time";
 
+    public static final String CRYPTER_NAME = "segment.crypter";
     public static final String CUSTOM_MAP = "custom.map";
+
+    @Deprecated
+    public static final String TABLE_NAME = "segment.table.name";
 
     public static final String SEGMENT_BACKUP_DIR_SUFFIX = ".segment.bak";
     public static final String SEGMENT_TEMP_DIR_SUFFIX = ".segment.tmp";
 
     public static final String LOCAL_SEGMENT_SCHEME = "file";
+    public static final String PEER_SEGMENT_DOWNLOAD_SCHEME = "peer://";
     public static final String METADATA_URI_FOR_PEER_DOWNLOAD = "";
 
     public enum SegmentType {
@@ -397,9 +426,6 @@ public class CommonConstants {
       public static final String HOSTNAME = "$hostName";
       public static final String SEGMENTNAME = "$segmentName";
     }
-
-    @Deprecated
-    public static final String TABLE_NAME = "segment.table.name";
   }
 
   public static class Query {
@@ -431,6 +457,17 @@ public class CommonConstants {
         // For non-streaming response
         public static final String NON_STREAMING = "nonStreaming";
       }
+    }
+
+    public static class Range {
+      public static final char DELIMITER = '\0';
+      public static final char LOWER_EXCLUSIVE = '(';
+      public static final char LOWER_INCLUSIVE = '[';
+      public static final char UPPER_EXCLUSIVE = ')';
+      public static final char UPPER_INCLUSIVE = ']';
+      public static final String UNBOUNDED = "*";
+      public static final String LOWER_UNBOUNDED = LOWER_EXCLUSIVE + UNBOUNDED + DELIMITER;
+      public static final String UPPER_UNBOUNDED = DELIMITER + UNBOUNDED + UPPER_EXCLUSIVE;
     }
   }
 }

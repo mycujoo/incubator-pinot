@@ -82,6 +82,7 @@ import org.apache.pinot.spi.stream.StreamConfigProperties;
 import org.apache.pinot.spi.stream.StreamConsumerFactoryProvider;
 import org.apache.pinot.spi.stream.StreamPartitionMsgOffset;
 import org.apache.pinot.spi.stream.StreamPartitionMsgOffsetFactory;
+import org.apache.pinot.spi.utils.IngestionConfigUtils;
 import org.apache.pinot.spi.utils.builder.TableNameBuilder;
 import org.apache.pinot.spi.utils.retry.RetryPolicies;
 import org.apache.zookeeper.data.Stat;
@@ -210,7 +211,7 @@ public class PinotLLCRealtimeSegmentManager {
     _flushThresholdUpdateManager.clearFlushThresholdUpdater(realtimeTableName);
 
     PartitionLevelStreamConfig streamConfig =
-        new PartitionLevelStreamConfig(tableConfig.getTableName(), tableConfig.getIndexingConfig().getStreamConfigs());
+        new PartitionLevelStreamConfig(tableConfig.getTableName(), IngestionConfigUtils.getStreamConfigMap(tableConfig));
     InstancePartitions instancePartitions = getConsumingInstancePartitions(tableConfig);
     int numPartitions = getNumPartitions(streamConfig);
     int numReplicas = getNumReplicas(tableConfig, instancePartitions);
@@ -452,7 +453,7 @@ public class PinotLLCRealtimeSegmentManager {
     LLCSegmentName newLLCSegmentName =
         getNextLLCSegmentName(new LLCSegmentName(committingSegmentName), newSegmentCreationTimeMs);
     createNewSegmentZKMetadata(tableConfig,
-        new PartitionLevelStreamConfig(tableConfig.getTableName(), tableConfig.getIndexingConfig().getStreamConfigs()),
+        new PartitionLevelStreamConfig(tableConfig.getTableName(), IngestionConfigUtils.getStreamConfigMap(tableConfig)),
         newLLCSegmentName, newSegmentCreationTimeMs, committingSegmentDescriptor, committingSegmentZKMetadata,
         instancePartitions, numPartitions, numReplicas);
 
@@ -611,8 +612,8 @@ public class PinotLLCRealtimeSegmentManager {
       return commitTimeoutMS;
     }
     TableConfig tableConfig = getTableConfig(realtimeTableName);
-    final Map<String, String> streamConfigs = tableConfig.getIndexingConfig().getStreamConfigs();
-    if (streamConfigs != null && streamConfigs.containsKey(StreamConfigProperties.SEGMENT_COMMIT_TIMEOUT_SECONDS)) {
+    final Map<String, String> streamConfigs = IngestionConfigUtils.getStreamConfigMap(tableConfig);
+    if (streamConfigs.containsKey(StreamConfigProperties.SEGMENT_COMMIT_TIMEOUT_SECONDS)) {
       final String commitTimeoutSecondsStr = streamConfigs.get(StreamConfigProperties.SEGMENT_COMMIT_TIMEOUT_SECONDS);
       try {
         return TimeUnit.MILLISECONDS.convert(Integer.parseInt(commitTimeoutSecondsStr), TimeUnit.SECONDS);
@@ -792,6 +793,25 @@ public class PinotLLCRealtimeSegmentManager {
       LOGGER.info("Updating segment: {} to ONLINE state", committingSegmentName);
     }
 
+    // There used to be a race condition in pinot (caused by heavy GC on the controller during segment commit)
+    // that ended up creating multiple consuming segments for the same stream partition, named somewhat like
+    // tableName__1__25__20210920T190005Z and tableName__1__25__20210920T190007Z. It was fixed by checking the
+    // Zookeeper Stat object before updating the segment metadata.
+    // These conditions can happen again due to manual operations considered as fixes in Issues #5559 and #5263
+    // The following check prevents the table from going into such a state (but does not prevent the root cause
+    // of attempting such a zk update).
+    LLCSegmentName newLLCSegmentName = new LLCSegmentName(newSegmentName);
+    int partitionId = newLLCSegmentName.getPartitionId();
+    int seqNum = newLLCSegmentName.getSequenceNumber();
+    for (String segmentNameStr : instanceStatesMap.keySet()) {
+      LLCSegmentName llcSegmentName = new LLCSegmentName(segmentNameStr);
+      if (llcSegmentName.getPartitionId() == partitionId && llcSegmentName.getSequenceNumber() == seqNum) {
+        String errorMsg =
+            String.format("Segment %s is a duplicate of existing segment %s", newSegmentName, segmentNameStr);
+        LOGGER.error(errorMsg);
+        throw new HelixHelper.PermanentUpdaterException(errorMsg);
+      }
+    }
     // Assign instances to the new segment and add instances as state CONSUMING
     List<String> instancesAssigned =
         segmentAssignment.assignSegment(newSegmentName, instanceStatesMap, instancePartitionsMap);

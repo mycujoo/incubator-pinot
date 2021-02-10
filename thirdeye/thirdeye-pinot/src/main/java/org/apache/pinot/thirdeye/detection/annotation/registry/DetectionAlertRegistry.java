@@ -20,6 +20,13 @@
 package org.apache.pinot.thirdeye.detection.annotation.registry;
 
 import com.google.common.base.Preconditions;
+import io.github.classgraph.AnnotationInfo;
+import io.github.classgraph.ClassGraph;
+import io.github.classgraph.ClassInfo;
+import io.github.classgraph.ClassInfoList;
+import io.github.classgraph.ScanResult;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.pinot.thirdeye.detection.alert.DetectionAlertFilter;
 import org.apache.pinot.thirdeye.detection.alert.scheme.DetectionAlertScheme;
 import org.apache.pinot.thirdeye.detection.alert.suppress.DetectionAlertSuppressor;
@@ -29,11 +36,8 @@ import org.apache.pinot.thirdeye.detection.annotation.AlertSuppressor;
 import java.lang.annotation.Annotation;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
-import org.reflections.Reflections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 
 /**
  * The detection alert registry.
@@ -50,13 +54,25 @@ public class DetectionAlertRegistry {
   // Alert Filter Type Map
   private static final Map<String, String> ALERT_FILTER_MAP = new HashMap<>();
 
+  // default package name for reflection to scan
+  private static final String DEFAULT_PACKAGE_LIST = "org.apache.pinot.thirdeye";
+
+  // list of package names for reflection to scan
+  private static List<String> packageList = new ArrayList<>();
+
+  // singleton instance
   private static DetectionAlertRegistry INSTANCE;
 
   public static DetectionAlertRegistry getInstance() {
     if (INSTANCE == null) {
-      INSTANCE = new DetectionAlertRegistry();
+      synchronized (DetectionAlertRegistry.class) {
+        // another check after acquiring the lock before initializing
+        if (INSTANCE == null) {
+          packageList.add(DEFAULT_PACKAGE_LIST);
+          INSTANCE = new DetectionAlertRegistry();
+        }
+      }
     }
-
     return INSTANCE;
   }
 
@@ -68,38 +84,42 @@ public class DetectionAlertRegistry {
    * Read all the alert schemes and suppressors and initialize the registry.
    */
   private static void init() {
-    try {
-      Reflections reflections = new Reflections();
-
+    try (ScanResult scanResult = new ClassGraph()
+        .acceptPackages(packageList.toArray(new String[packageList.size()]))
+        .enableAnnotationInfo()
+        .enableClassInfo().scan()) {
       // register alert filters
-      Set<Class<? extends DetectionAlertFilter>> alertFilterClasses =
-          reflections.getSubTypesOf(DetectionAlertFilter.class);
-      for (Class clazz : alertFilterClasses) {
-        for (Annotation annotation : clazz.getAnnotations()) {
-          if (annotation instanceof AlertFilter) {
-            ALERT_FILTER_MAP.put(((AlertFilter) annotation).type(), clazz.getName());
+      ClassInfoList alertFilterClassClasses = scanResult.getSubclasses(DetectionAlertFilter.class.getName());
+      for (ClassInfo classInfo : alertFilterClassClasses) {
+        for (AnnotationInfo annotationInfo : classInfo.getAnnotationInfo()) {
+          if (annotationInfo.getName().equals(AlertFilter.class.getName())) {
+            Annotation annotation = annotationInfo.loadClassAndInstantiate();
+            ALERT_FILTER_MAP.put(((AlertFilter) annotation).type(), classInfo.getName());
+            LOG.info("Registered Alter Filter {}", classInfo.getName());
           }
         }
       }
 
       // register alert schemes
-      Set<Class<? extends DetectionAlertScheme>> alertSchemeClasses =
-          reflections.getSubTypesOf(DetectionAlertScheme.class);
-      for (Class clazz : alertSchemeClasses) {
-        for (Annotation annotation : clazz.getAnnotations()) {
-          if (annotation instanceof AlertScheme) {
-            ALERT_SCHEME_MAP.put(((AlertScheme) annotation).type(), clazz.getName());
+      ClassInfoList alertSchemeClasses = scanResult.getSubclasses(DetectionAlertScheme.class.getName());
+      for (ClassInfo classInfo : alertSchemeClasses) {
+        for (AnnotationInfo annotationInfo : classInfo.getAnnotationInfo()) {
+          if (annotationInfo.getName().equals(AlertScheme.class.getName())) {
+            Annotation annotation = annotationInfo.loadClassAndInstantiate();
+            ALERT_SCHEME_MAP.put(((AlertScheme) annotation).type(), classInfo.getName());
+            LOG.info("Registered Alter Scheme {}", classInfo.getName());
           }
         }
       }
 
       // register alert suppressors
-      Set<Class<? extends DetectionAlertSuppressor>> alertSuppressorClasses =
-          reflections.getSubTypesOf(DetectionAlertSuppressor.class);
-      for (Class clazz : alertSuppressorClasses) {
-        for (Annotation annotation : clazz.getAnnotations()) {
-          if (annotation instanceof AlertSuppressor) {
-            ALERT_SUPPRESSOR_MAP.put(((AlertSuppressor) annotation).type(), clazz.getName());
+      ClassInfoList alertSuppressorClasses = scanResult.getSubclasses(DetectionAlertSuppressor.class.getName());
+      for (ClassInfo classInfo : alertSuppressorClasses) {
+        for  (AnnotationInfo annotationInfo : classInfo.getAnnotationInfo()) {
+          if (annotationInfo.getName().equals( AlertSuppressor.class.getName())) {
+            Annotation annotation = annotationInfo.loadClassAndInstantiate();
+            ALERT_SUPPRESSOR_MAP.put(((AlertSuppressor) annotation).type(), classInfo.getName());
+            LOG.info("Registered Alter AlertSuppressor {}", classInfo.getName());
           }
         }
       }
@@ -143,5 +163,9 @@ public class DetectionAlertRegistry {
   public String lookupAlertSuppressors(String suppressorType) {
     Preconditions.checkArgument(ALERT_SUPPRESSOR_MAP.containsKey(suppressorType.toUpperCase()), suppressorType + " not found in registry");
     return ALERT_SUPPRESSOR_MAP.get(suppressorType.toUpperCase());
+  }
+
+  public static void setPackageList(List<String> packageList) {
+    DetectionAlertRegistry.packageList = packageList;
   }
 }

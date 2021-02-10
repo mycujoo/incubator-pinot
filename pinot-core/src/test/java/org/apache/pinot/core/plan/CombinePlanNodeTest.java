@@ -26,11 +26,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import junit.framework.Assert;
 import org.apache.pinot.common.utils.CommonConstants.Server;
 import org.apache.pinot.core.plan.maker.InstancePlanMakerImplV2;
 import org.apache.pinot.core.query.request.context.QueryContext;
 import org.apache.pinot.core.query.request.context.utils.QueryContextConverterUtils;
+import org.testng.Assert;
 import org.testng.annotations.Test;
 
 
@@ -58,7 +58,8 @@ public class CombinePlanNodeTest {
       }
       CombinePlanNode combinePlanNode = new CombinePlanNode(planNodes, _queryContext, _executorService,
           System.currentTimeMillis() + Server.DEFAULT_QUERY_EXECUTOR_TIMEOUT_MS,
-          InstancePlanMakerImplV2.DEFAULT_NUM_GROUPS_LIMIT, null);
+          InstancePlanMakerImplV2.DEFAULT_NUM_GROUPS_LIMIT, null,
+          InstancePlanMakerImplV2.DEFAULT_GROUPBY_TRIM_THRESHOLD);
       combinePlanNode.run();
       Assert.assertEquals(numPlans, count.get());
     }
@@ -83,7 +84,8 @@ public class CombinePlanNodeTest {
     }
     CombinePlanNode combinePlanNode =
         new CombinePlanNode(planNodes, _queryContext, _executorService, System.currentTimeMillis() + 100,
-            InstancePlanMakerImplV2.DEFAULT_NUM_GROUPS_LIMIT, null);
+            InstancePlanMakerImplV2.DEFAULT_NUM_GROUPS_LIMIT, null,
+            InstancePlanMakerImplV2.DEFAULT_GROUPBY_TRIM_THRESHOLD);
     try {
       combinePlanNode.run();
     } catch (RuntimeException e) {
@@ -105,7 +107,8 @@ public class CombinePlanNodeTest {
     }
     CombinePlanNode combinePlanNode = new CombinePlanNode(planNodes, _queryContext, _executorService,
         System.currentTimeMillis() + Server.DEFAULT_QUERY_EXECUTOR_TIMEOUT_MS,
-        InstancePlanMakerImplV2.DEFAULT_NUM_GROUPS_LIMIT, null);
+        InstancePlanMakerImplV2.DEFAULT_NUM_GROUPS_LIMIT, null,
+        InstancePlanMakerImplV2.DEFAULT_GROUPBY_TRIM_THRESHOLD);
     try {
       combinePlanNode.run();
     } catch (RuntimeException e) {

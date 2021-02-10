@@ -19,34 +19,42 @@
 package org.apache.pinot.core.segment.index.readers;
 
 import com.google.common.base.Preconditions;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import java.io.IOException;
 import java.util.Arrays;
 import org.apache.pinot.common.utils.StringUtil;
-import org.apache.pinot.spi.utils.ByteArray;
 import org.apache.pinot.core.io.util.FixedByteValueReaderWriter;
 import org.apache.pinot.core.io.util.ValueReader;
-import org.apache.pinot.core.io.util.VarLengthBytesValueReaderWriter;
+import org.apache.pinot.core.io.util.VarLengthValueReader;
 import org.apache.pinot.core.segment.memory.PinotDataBuffer;
+import org.apache.pinot.spi.utils.ByteArray;
 
 
-public abstract class BaseImmutableDictionary extends BaseDictionary {
+/**
+ * Base implementation of immutable dictionary.
+ */
+@SuppressWarnings("rawtypes")
+public abstract class BaseImmutableDictionary implements Dictionary {
   private final ValueReader _valueReader;
   private final int _length;
   private final int _numBytesPerValue;
   private final byte _paddingByte;
 
   protected BaseImmutableDictionary(PinotDataBuffer dataBuffer, int length, int numBytesPerValue, byte paddingByte) {
-    if (VarLengthBytesValueReaderWriter.isVarLengthBytesDictBuffer(dataBuffer)) {
-      _valueReader = new VarLengthBytesValueReaderWriter(dataBuffer);
+    if (VarLengthValueReader.isVarLengthValueBuffer(dataBuffer)) {
+      VarLengthValueReader valueReader = new VarLengthValueReader(dataBuffer);
+      _valueReader = valueReader;
+      _length = valueReader.getNumValues();
+      _paddingByte = 0;
     } else {
-      Preconditions.checkState(dataBuffer.size() == length * numBytesPerValue,
+      Preconditions.checkState(dataBuffer.size() == (long) length * numBytesPerValue,
           "Buffer size mismatch: bufferSize = %s, numValues = %s, numByesPerValue = %s", dataBuffer.size(), length,
           numBytesPerValue);
       _valueReader = new FixedByteValueReaderWriter(dataBuffer);
+      _length = length;
+      _paddingByte = paddingByte;
     }
-    _length = length;
     _numBytesPerValue = numBytesPerValue;
-    _paddingByte = paddingByte;
   }
 
   /**
@@ -58,12 +66,6 @@ public abstract class BaseImmutableDictionary extends BaseDictionary {
     _numBytesPerValue = -1;
     _paddingByte = 0;
   }
-
-  /**
-   * Returns the insertion index of string representation of the value in the dictionary. Follows the same behavior as
-   * in {@link Arrays#binarySearch(Object[], Object)}. This API is for range predicate evaluation.
-   */
-  public abstract int insertionIndexOf(String stringValue);
 
   @Override
   public boolean isSorted() {
@@ -79,6 +81,34 @@ public abstract class BaseImmutableDictionary extends BaseDictionary {
   public int indexOf(String stringValue) {
     int index = insertionIndexOf(stringValue);
     return (index >= 0) ? index : NULL_VALUE_INDEX;
+  }
+
+  @Override
+  public IntSet getDictIdsInRange(String lower, String upper, boolean includeLower, boolean includeUpper) {
+    // This method should not be called for sorted dictionary.
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public int compare(int dictId1, int dictId2) {
+    return Integer.compare(dictId1, dictId2);
+  }
+
+  @Override
+  public Comparable getMinVal() {
+    return (Comparable) get(0);
+  }
+
+  @Override
+  public Comparable getMaxVal() {
+    return (Comparable) get(_length - 1);
+  }
+
+  @Override
+  public Object getSortedValues() {
+    // This method is for the stats collection phase when sealing the consuming segment, so it is not required for
+    // regular immutable dictionary within the immutable segment.
+    throw new UnsupportedOperationException();
   }
 
   @Override

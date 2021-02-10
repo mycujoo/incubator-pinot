@@ -18,6 +18,18 @@
     "eslint-app": "npm run eslint app/",
     "eslint-tests": "npm run eslint tests/"
   },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
+  "lint-staged": {
+    "**/*.js": [
+      "./node_modules/.bin/eslint --fix",
+      "./node_modules/.bin/prettier --write",
+      "git add"
+    ]
+  },
   "devDependencies": {
     "autosize": "^4.0.0",
     "babel-plugin-transform-object-rest-spread": "^6.26.0",
@@ -50,14 +62,14 @@
     "ember-cli-text-support-mixins": "^2.0.2",
     "ember-cli-textarea-autosize": "^1.1.1",
     "ember-cli-uglify": "^2.0.0",
-    "ember-cli-update": "^0.43.3",
+    "ember-cli-update": "^0.55.2",
     "ember-composable-helpers": "^2.3.1",
     "ember-concurrency": "^1.1.0",
     "ember-d3": "^0.5.1",
-    "ember-data": "~2.18.0",
+    "ember-data": "~3.0.0",
     "ember-export-application-global": "^2.0.0",
     "ember-faker": "^1.5.0",
-    "ember-fetch": "^2.1.0",
+    "ember-fetch": "6.2.0",
     "ember-load-initializers": "^1.0.0",
     "ember-lodash-shim": "^4.0.0",
     "ember-modal-dialog": "^3.0.0-beta.4",
@@ -67,21 +79,28 @@
     "ember-radio-button": "^2.0.1",
     "ember-resolver": "^4.0.0",
     "ember-simple-auth": "^1.9.2",
-    "ember-source": "~2.18.0",
+    "ember-sinon": "^5.0.0",
+    "ember-source": "~3.0.0",
     "ember-symbol-observable": "^1.0.6",
     "ember-tether": "^1.0.0-beta.0",
     "ember-toastr": "^1.7.2",
     "ember-toggle": "6.0.0",
     "ember-tooltips": "^2.9.0-beta.0",
     "ember-truth-helpers": "^2.1.0",
+    "eslint": "^7.12.1",
+    "eslint-config-prettier": "^6.15.0",
     "eslint-plugin-ember": "~5.0.0",
+    "eslint-plugin-prettier": "^3.1.4",
     "html2canvas": "^1.0.0-rc.5",
+    "husky": "^4.3.0",
     "jspdf": "^1.5.3",
     "keyevent": "^1.1.0",
+    "lint-staged": "^10.5.1",
     "liquid-fire": "^0.30.0",
     "liquid-tether": "^2.0.6",
     "liquid-wormhole": "^2.1.1",
     "loader.js": "^4.2.3",
+    "prettier": "^2.1.2",
     "sass": "^1.23.0",
     "toastr": "^2.1.4"
   },
@@ -96,5 +115,9 @@
     "moment": "^2.24.0",
     "source-sans-pro": "^3.6.0",
     "yamljs": "^0.3.0"
+  },
+  "resolutions": {
+    "human-signals": "1.1.0",
+    "whatwg-fetch": "3.3.1"
   }
 }

@@ -18,20 +18,10 @@
  */
 package org.apache.pinot.core.segment.index.metadata;
 
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.DATETIME_COLUMNS;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.DIMENSIONS;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.METRICS;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.SEGMENT_CREATOR_VERSION;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.SEGMENT_END_TIME;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.SEGMENT_NAME;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.SEGMENT_PADDING_CHARACTER;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.SEGMENT_START_TIME;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.SEGMENT_TOTAL_DOCS;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.SEGMENT_VERSION;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.TABLE_NAME;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.TIME_COLUMN_NAME;
-import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.TIME_UNIT;
-
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.base.Preconditions;
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -44,14 +34,14 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
-
 import javax.annotation.Nullable;
-
+import org.apache.commons.configuration.Configuration;
 import org.apache.commons.configuration.PropertiesConfiguration;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.pinot.common.metadata.segment.RealtimeSegmentZKMetadata;
@@ -64,16 +54,14 @@ import org.apache.pinot.spi.data.Schema;
 import org.apache.pinot.spi.env.CommonsConfigurationUtils;
 import org.apache.pinot.spi.utils.JsonUtils;
 import org.apache.pinot.spi.utils.TimeUtils;
+import org.apache.pinot.spi.utils.builder.TableNameBuilder;
 import org.joda.time.DateTimeZone;
 import org.joda.time.Duration;
 import org.joda.time.Interval;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.google.common.base.Preconditions;
+import static org.apache.pinot.core.segment.creator.impl.V1Constants.MetadataKeys.Segment.*;
 
 
 public class SegmentMetadataImpl implements SegmentMetadata {
@@ -81,7 +69,6 @@ public class SegmentMetadataImpl implements SegmentMetadata {
 
   private final File _indexDir;
   private final Map<String, ColumnMetadata> _columnMetadataMap;
-  private String _tableName;
   private String _segmentName;
   private final Set<String> _allColumns;
   private final Schema _schema;
@@ -104,6 +91,10 @@ public class SegmentMetadataImpl implements SegmentMetadata {
   private int _totalDocs;
   private long _segmentStartTime;
   private long _segmentEndTime;
+  private Map<String, String> _customMap;
+
+  @Deprecated
+  private String _rawTableName;
 
   /**
    * For segments on disk.
@@ -117,6 +108,7 @@ public class SegmentMetadataImpl implements SegmentMetadata {
     _columnMetadataMap = new HashMap<>();
     _allColumns = new HashSet<>();
     _schema = new Schema();
+    _customMap = new HashMap<>();
 
     init(segmentMetadataPropertiesConfiguration);
     File creationMetaFile = SegmentDirectoryPaths.findCreationMetaFile(indexDir);
@@ -155,17 +147,18 @@ public class SegmentMetadataImpl implements SegmentMetadata {
     _creationTime = segmentMetadata.getCreationTime();
     setTimeInfo(segmentMetadataPropertiesConfiguration);
     _columnMetadataMap = null;
-    _tableName = segmentMetadata.getTableName();
+    _rawTableName = segmentMetadata.getTableName();
     _segmentName = segmentMetadata.getSegmentName();
     _allColumns = schema.getColumnNames();
     _schema = schema;
     _totalDocs = segmentMetadataPropertiesConfiguration.getInt(SEGMENT_TOTAL_DOCS);
+    _customMap = new HashMap<>();
   }
 
   public static PropertiesConfiguration getPropertiesConfiguration(File indexDir) {
     File metadataFile = SegmentDirectoryPaths.findMetadataFile(indexDir);
     Preconditions.checkNotNull(metadataFile, "Cannot find segment metadata file under directory: %s", indexDir);
-    
+
     return CommonsConfigurationUtils.fromFile(metadataFile);
   }
 
@@ -239,8 +232,11 @@ public class SegmentMetadataImpl implements SegmentMetadata {
     addPhysicalColumns(segmentMetadataPropertiesConfiguration.getList(TIME_COLUMN_NAME), _allColumns);
     addPhysicalColumns(segmentMetadataPropertiesConfiguration.getList(DATETIME_COLUMNS), _allColumns);
 
-    //set the table name
-    _tableName = segmentMetadataPropertiesConfiguration.getString(TABLE_NAME);
+    // Set the table name (for backward compatibility)
+    String tableName = segmentMetadataPropertiesConfiguration.getString(TABLE_NAME);
+    if (tableName != null) {
+      _rawTableName = TableNameBuilder.extractRawTableName(tableName);
+    }
 
     // Set segment name.
     _segmentName = segmentMetadataPropertiesConfiguration.getString(SEGMENT_NAME);
@@ -262,6 +258,20 @@ public class SegmentMetadataImpl implements SegmentMetadata {
         _starTreeV2MetadataList.add(new StarTreeV2Metadata(
             segmentMetadataPropertiesConfiguration.subset(StarTreeV2Constants.MetadataKey.getStarTreePrefix(i))));
       }
+    }
+
+    // Set custom configs from metadata properties
+    setCustomConfigs(segmentMetadataPropertiesConfiguration, _customMap);
+  }
+
+  private static void setCustomConfigs(Configuration segmentMetadataPropertiesConfiguration,
+      Map<String, String> customConfigsMap) {
+    Configuration customConfigs =
+        segmentMetadataPropertiesConfiguration.subset(V1Constants.MetadataKeys.Segment.CUSTOM_SUBSET);
+    Iterator<String> customKeysIter = customConfigs.getKeys();
+    while (customKeysIter.hasNext()) {
+      String key = customKeysIter.next();
+      customConfigsMap.put(key, customConfigs.getString(key));
     }
   }
 
@@ -287,7 +297,7 @@ public class SegmentMetadataImpl implements SegmentMetadata {
 
   @Override
   public String getTableName() {
-    return _tableName;
+    return _rawTableName;
   }
 
   @Override
@@ -427,6 +437,11 @@ public class SegmentMetadataImpl implements SegmentMetadata {
     return false;
   }
 
+  @Override
+  public Map<String, String> getCustomMap() {
+    return _customMap;
+  }
+
   public List<StarTreeV2Metadata> getStarTreeV2MetadataList() {
     return _starTreeV2MetadataList;
   }
@@ -530,6 +545,12 @@ public class SegmentMetadataImpl implements SegmentMetadata {
     segmentMetadata.put("segmentVersion", _segmentVersion.toString());
     segmentMetadata.put("creatorName", _creatorName);
     segmentMetadata.put("paddingCharacter", String.valueOf(_paddingCharacter));
+
+    ObjectNode customConfigs = JsonUtils.newObjectNode();
+    for (String key : _customMap.keySet()) {
+      customConfigs.put(key, _customMap.get(key));
+    }
+    segmentMetadata.set("custom", customConfigs);
 
     ArrayNode columnsMetadata = JsonUtils.newArrayNode();
     for (String column : _allColumns) {

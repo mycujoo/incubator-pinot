@@ -20,7 +20,6 @@ package org.apache.pinot.core.realtime.converter;
 
 import com.google.common.annotations.VisibleForTesting;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,13 +33,13 @@ import org.apache.pinot.core.indexsegment.mutable.MutableSegmentImpl;
 import org.apache.pinot.core.io.compression.ChunkCompressorFactory;
 import org.apache.pinot.core.realtime.converter.stats.RealtimeSegmentSegmentCreationDataSource;
 import org.apache.pinot.core.segment.creator.impl.SegmentIndexCreationDriverImpl;
+import org.apache.pinot.core.upsert.PartitionUpsertMetadataManager;
+import org.apache.pinot.core.upsert.TableUpsertMetadataManager;
 import org.apache.pinot.spi.config.table.ColumnPartitionConfig;
 import org.apache.pinot.spi.config.table.SegmentPartitionConfig;
 import org.apache.pinot.spi.config.table.TableConfig;
 import org.apache.pinot.spi.data.FieldSpec;
 import org.apache.pinot.spi.data.Schema;
-import org.apache.pinot.spi.data.TimeFieldSpec;
-import org.apache.pinot.spi.data.TimeGranularitySpec;
 
 
 public class RealtimeSegmentConverter {
@@ -53,14 +52,15 @@ public class RealtimeSegmentConverter {
   private final String _sortedColumn;
   private final List<String> _invertedIndexColumns;
   private final List<String> _textIndexColumns;
+  private final List<String> _fstIndexColumns;
   private final List<String> _noDictionaryColumns;
   private final List<String> _varLengthDictionaryColumns;
   private final boolean _nullHandlingEnabled;
 
   public RealtimeSegmentConverter(MutableSegmentImpl realtimeSegment, String outputPath, Schema schema,
       String tableName, TableConfig tableConfig, String segmentName, String sortedColumn,
-      List<String> invertedIndexColumns, List<String> textIndexColumns, List<String> noDictionaryColumns,
-      List<String> varLengthDictionaryColumns, boolean nullHandlingEnabled) {
+      List<String> invertedIndexColumns, List<String> textIndexColumns, List<String> fstIndexColumns,
+      List<String> noDictionaryColumns, List<String> varLengthDictionaryColumns, boolean nullHandlingEnabled) {
     _realtimeSegmentImpl = realtimeSegment;
     _outputPath = outputPath;
     _invertedIndexColumns = new ArrayList<>(invertedIndexColumns);
@@ -76,6 +76,7 @@ public class RealtimeSegmentConverter {
     _varLengthDictionaryColumns = varLengthDictionaryColumns;
     _nullHandlingEnabled = nullHandlingEnabled;
     _textIndexColumns = textIndexColumns;
+    _fstIndexColumns = fstIndexColumns;
   }
 
   public void build(@Nullable SegmentVersion segmentVersion, ServerMetrics serverMetrics)
@@ -117,6 +118,7 @@ public class RealtimeSegmentConverter {
     genConfig.setOutDir(_outputPath);
     genConfig.setSegmentName(_segmentName);
     genConfig.setTextIndexCreationColumns(_textIndexColumns);
+    genConfig.setFSTIndexCreationColumns(_fstIndexColumns);
     SegmentPartitionConfig segmentPartitionConfig = _realtimeSegmentImpl.getSegmentPartitionConfig();
     genConfig.setSegmentPartitionConfig(segmentPartitionConfig);
     genConfig.setNullHandlingEnabled(_nullHandlingEnabled);

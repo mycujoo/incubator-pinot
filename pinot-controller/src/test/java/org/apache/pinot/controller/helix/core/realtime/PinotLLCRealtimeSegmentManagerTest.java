@@ -18,14 +18,7 @@
  */
 package org.apache.pinot.controller.helix.core.realtime;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertFalse;
-import static org.testng.Assert.assertNotNull;
-import static org.testng.Assert.assertTrue;
-import static org.testng.Assert.fail;
-
+import com.google.common.base.Preconditions;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -37,9 +30,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
-
 import javax.annotation.Nullable;
-
 import org.apache.commons.io.FileUtils;
 import org.apache.helix.model.IdealState;
 import org.apache.pinot.common.assignment.InstancePartitions;
@@ -68,16 +59,17 @@ import org.apache.pinot.spi.stream.LongMsgOffset;
 import org.apache.pinot.spi.stream.OffsetCriteria;
 import org.apache.pinot.spi.stream.PartitionLevelStreamConfig;
 import org.apache.pinot.spi.stream.StreamConfig;
+import org.apache.pinot.spi.utils.IngestionConfigUtils;
 import org.apache.pinot.spi.utils.builder.TableConfigBuilder;
 import org.apache.pinot.spi.utils.builder.TableNameBuilder;
 import org.apache.zookeeper.data.Stat;
 import org.joda.time.Interval;
 import org.testng.Assert;
 import org.testng.annotations.AfterClass;
-import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
-import com.google.common.base.Preconditions;
+import static org.mockito.Mockito.*;
+import static org.testng.Assert.*;
 
 
 public class PinotLLCRealtimeSegmentManagerTest {
@@ -98,15 +90,8 @@ public class PinotLLCRealtimeSegmentManagerTest {
       RANDOM.nextBoolean() ? SegmentVersion.v1.toString() : SegmentVersion.v3.toString();
   static final int NUM_DOCS = RANDOM.nextInt(Integer.MAX_VALUE) + 1;
 
-  @BeforeClass
-  public void setUp() {
-    // Printing out the random seed to console so that we can use the seed to reproduce failure conditions
-    System.out.println("Using random seed: " + RANDOM_SEED);
-  }
-
   @AfterClass
-  public void tearDown()
-      throws IOException {
+  public void tearDown() throws IOException {
     FileUtils.deleteDirectory(TEMP_DIR);
   }
 
@@ -198,7 +183,7 @@ public class PinotLLCRealtimeSegmentManagerTest {
     // Commit a segment for partition 0
     String committingSegment = new LLCSegmentName(RAW_TABLE_NAME, 0, 0, CURRENT_TIME_MS).getSegmentName();
     CommittingSegmentDescriptor committingSegmentDescriptor = new CommittingSegmentDescriptor(committingSegment,
-            new LongMsgOffset(PARTITION_OFFSET.getOffset() + NUM_DOCS).toString(), 0L);
+        new LongMsgOffset(PARTITION_OFFSET.getOffset() + NUM_DOCS).toString(), 0L);
     committingSegmentDescriptor.setSegmentMetadata(mockSegmentMetadata());
     segmentManager.commitSegmentMetadata(REALTIME_TABLE_NAME, committingSegmentDescriptor);
 
@@ -222,7 +207,6 @@ public class PinotLLCRealtimeSegmentManagerTest {
     assertEquals(committedSegmentZKMetadata.getEndOffset(),
         new LongMsgOffset(PARTITION_OFFSET.getOffset() + NUM_DOCS).toString());
     assertEquals(committedSegmentZKMetadata.getCreationTime(), CURRENT_TIME_MS);
-    assertEquals(committedSegmentZKMetadata.getTimeInterval(), INTERVAL);
     assertEquals(committedSegmentZKMetadata.getCrc(), Long.parseLong(CRC));
     assertEquals(committedSegmentZKMetadata.getIndexVersion(), SEGMENT_VERSION);
     assertEquals(committedSegmentZKMetadata.getTotalDocs(), NUM_DOCS);
@@ -592,8 +576,8 @@ public class PinotLLCRealtimeSegmentManagerTest {
       Map<String, String> instanceStateMap = entry.getValue();
 
       // Skip segments with all instances OFFLINE
-      if (instanceStateMap.containsValue(SegmentStateModel.ONLINE) || instanceStateMap
-          .containsValue(SegmentStateModel.CONSUMING)) {
+      if (instanceStateMap.containsValue(SegmentStateModel.ONLINE) || instanceStateMap.containsValue(
+          SegmentStateModel.CONSUMING)) {
         LLCSegmentName llcSegmentName = new LLCSegmentName(segmentName);
         int partitionsId = llcSegmentName.getPartitionId();
         Map<Integer, String> sequenceNumberToSegmentMap = partitionIdToSegmentsMap.get(partitionsId);
@@ -683,8 +667,7 @@ public class PinotLLCRealtimeSegmentManagerTest {
   }
 
   @Test
-  public void testCommitSegmentFile()
-      throws Exception {
+  public void testCommitSegmentFile() throws Exception {
     PinotFSFactory.init(new PinotConfiguration());
     File tableDir = new File(TEMP_DIR, RAW_TABLE_NAME);
     String segmentName = new LLCSegmentName(RAW_TABLE_NAME, 0, 0, CURRENT_TIME_MS).getSegmentName();
@@ -694,8 +677,8 @@ public class PinotLLCRealtimeSegmentManagerTest {
 
     FakePinotLLCRealtimeSegmentManager segmentManager = new FakePinotLLCRealtimeSegmentManager();
     String segmentLocation = SCHEME + tableDir + "/" + segmentFileName;
-    CommittingSegmentDescriptor committingSegmentDescriptor = new CommittingSegmentDescriptor(segmentName,
-        PARTITION_OFFSET.toString(), 0, segmentLocation);
+    CommittingSegmentDescriptor committingSegmentDescriptor =
+        new CommittingSegmentDescriptor(segmentName, PARTITION_OFFSET.toString(), 0, segmentLocation);
     segmentManager.commitSegmentFile(REALTIME_TABLE_NAME, committingSegmentDescriptor);
     Assert.assertEquals(committingSegmentDescriptor.getSegmentLocation(),
         URIUtils.getUri(tableDir.toString(), URIUtils.encode(segmentName)).toString());
@@ -703,8 +686,7 @@ public class PinotLLCRealtimeSegmentManagerTest {
   }
 
   @Test
-  public void testSegmentAlreadyThereAndExtraneousFilesDeleted()
-      throws Exception {
+  public void testSegmentAlreadyThereAndExtraneousFilesDeleted() throws Exception {
     PinotFSFactory.init(new PinotConfiguration());
     File tableDir = new File(TEMP_DIR, RAW_TABLE_NAME);
     String segmentName = new LLCSegmentName(RAW_TABLE_NAME, 0, 0, CURRENT_TIME_MS).getSegmentName();
@@ -721,8 +703,8 @@ public class PinotLLCRealtimeSegmentManagerTest {
 
     FakePinotLLCRealtimeSegmentManager segmentManager = new FakePinotLLCRealtimeSegmentManager();
     String segmentLocation = SCHEME + tableDir + "/" + segmentFileName;
-    CommittingSegmentDescriptor committingSegmentDescriptor = new CommittingSegmentDescriptor(segmentName,
-        PARTITION_OFFSET.toString(), 0, segmentLocation);
+    CommittingSegmentDescriptor committingSegmentDescriptor =
+        new CommittingSegmentDescriptor(segmentName, PARTITION_OFFSET.toString(), 0, segmentLocation);
     segmentManager.commitSegmentFile(REALTIME_TABLE_NAME, committingSegmentDescriptor);
     Assert.assertEquals(committingSegmentDescriptor.getSegmentLocation(),
         URIUtils.getUri(tableDir.toString(), URIUtils.encode(segmentName)).toString());
@@ -732,8 +714,7 @@ public class PinotLLCRealtimeSegmentManagerTest {
   }
 
   @Test
-  public void testStopSegmentManager()
-      throws Exception {
+  public void testStopSegmentManager() throws Exception {
     FakePinotLLCRealtimeSegmentManager segmentManager = new FakePinotLLCRealtimeSegmentManager();
     segmentManager._numReplicas = 2;
     segmentManager.makeTableConfig();
@@ -797,7 +778,8 @@ public class PinotLLCRealtimeSegmentManagerTest {
     committingSegmentDescriptor.setSegmentMetadata(mockSegmentMetadata());
     segmentManager.commitSegmentMetadata(REALTIME_TABLE_NAME, committingSegmentDescriptor);
 
-    LLCRealtimeSegmentZKMetadata metadata = segmentManager.getSegmentZKMetadata(REALTIME_TABLE_NAME, committingSegment, null);
+    LLCRealtimeSegmentZKMetadata metadata =
+        segmentManager.getSegmentZKMetadata(REALTIME_TABLE_NAME, committingSegment, null);
     Assert.assertEquals(metadata.getDownloadUrl(), segmentLocationVIP);
 
     // Test case 2: segment location with peer format: peer://segment1, verify that an empty string is stored in zk.
@@ -840,11 +822,13 @@ public class PinotLLCRealtimeSegmentManagerTest {
 
     void makeTableConfig() {
       Map<String, String> streamConfigs = FakeStreamConfigUtils.getDefaultLowLevelStreamConfigs().getStreamConfigsMap();
-      _tableConfig =
-          new TableConfigBuilder(TableType.REALTIME).setTableName(RAW_TABLE_NAME).setNumReplicas(_numReplicas)
-              .setLLC(true).setStreamConfigs(streamConfigs).build();
+      _tableConfig = new TableConfigBuilder(TableType.REALTIME).setTableName(RAW_TABLE_NAME)
+          .setNumReplicas(_numReplicas)
+          .setLLC(true)
+          .setStreamConfigs(streamConfigs)
+          .build();
       _streamConfig = new PartitionLevelStreamConfig(_tableConfig.getTableName(),
-          _tableConfig.getIndexingConfig().getStreamConfigs());
+          IngestionConfigUtils.getStreamConfigMap(_tableConfig));
     }
 
     void makeConsumingInstancePartitions() {

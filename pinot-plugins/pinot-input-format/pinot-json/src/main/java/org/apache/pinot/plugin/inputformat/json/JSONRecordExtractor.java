@@ -18,45 +18,55 @@
  */
 package org.apache.pinot.plugin.inputformat.json;
 
+import com.google.common.collect.ImmutableSet;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
+import org.apache.pinot.spi.data.readers.BaseRecordExtractor;
 import org.apache.pinot.spi.data.readers.GenericRow;
-import org.apache.pinot.spi.data.readers.RecordExtractor;
 import org.apache.pinot.spi.data.readers.RecordExtractorConfig;
 
 
 /**
  * Extractor for JSON records
  */
-public class JSONRecordExtractor implements RecordExtractor<Map<String, Object>> {
+public class JSONRecordExtractor extends BaseRecordExtractor<Map<String, Object>> {
 
   private Set<String> _fields;
   private boolean _extractAll = false;
 
   @Override
   public void init(Set<String> fields, @Nullable RecordExtractorConfig recordExtractorConfig) {
-    _fields = fields;
     if (fields == null || fields.isEmpty()) {
       _extractAll = true;
+      _fields = Collections.emptySet();
+    } else {
+      _fields = ImmutableSet.copyOf(fields);
     }
   }
 
   @Override
   public GenericRow extract(Map<String, Object> from, GenericRow to) {
     if (_extractAll) {
-      from.forEach((fieldName, value) -> to.putValue(fieldName, JSONRecordExtractorUtils.convertValue(value)));
+      for (Map.Entry<String, Object> fieldToVal : from.entrySet()) {
+        Object value = fieldToVal.getValue();
+        if (value != null) {
+          value = convert(value);
+        }
+        to.putValue(fieldToVal.getKey(), value);
+      }
     } else {
       for (String fieldName : _fields) {
         Object value = from.get(fieldName);
         // NOTE about JSON behavior - cannot distinguish between INT/LONG and FLOAT/DOUBLE.
         // DataTypeTransformer fixes it.
-        Object convertedValue = JSONRecordExtractorUtils.convertValue(value);
-        to.putValue(fieldName, convertedValue);
+        if (value != null) {
+          value = convert(value);
+        }
+        to.putValue(fieldName, value);
       }
     }
     return to;
   }
-
-
 }

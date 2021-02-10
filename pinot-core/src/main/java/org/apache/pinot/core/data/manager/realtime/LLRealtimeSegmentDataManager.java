@@ -60,6 +60,7 @@ import org.apache.pinot.core.realtime.impl.RealtimeSegmentConfig;
 import org.apache.pinot.core.segment.creator.impl.V1Constants;
 import org.apache.pinot.core.segment.index.loader.IndexLoadingConfig;
 import org.apache.pinot.core.segment.store.SegmentDirectoryPaths;
+import org.apache.pinot.core.upsert.PartitionUpsertMetadataManager;
 import org.apache.pinot.core.util.IngestionUtils;
 import org.apache.pinot.server.realtime.ServerSegmentCompletionProtocolHandler;
 import org.apache.pinot.spi.config.table.ColumnPartitionConfig;
@@ -82,6 +83,7 @@ import org.apache.pinot.spi.stream.StreamMetadataProvider;
 import org.apache.pinot.spi.stream.StreamPartitionMsgOffset;
 import org.apache.pinot.spi.stream.StreamPartitionMsgOffsetFactory;
 import org.apache.pinot.spi.stream.TransientConsumerException;
+import org.apache.pinot.spi.utils.IngestionConfigUtils;
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 import org.slf4j.Logger;
@@ -141,7 +143,7 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
     }
   }
 
-  private static int MINIMUM_CONSUME_TIME_MINUTES = 10;
+  private static final int MINIMUM_CONSUME_TIME_MINUTES = 10;
 
   @VisibleForTesting
   public class SegmentBuildDescriptor {
@@ -231,8 +233,8 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
   private final SegmentVersion _segmentVersion;
   private final SegmentBuildTimeLeaseExtender _leaseExtender;
   private SegmentBuildDescriptor _segmentBuildDescriptor;
-  private StreamConsumerFactory _streamConsumerFactory;
-  private StreamPartitionMsgOffsetFactory _streamPartitionMsgOffsetFactory;
+  private final StreamConsumerFactory _streamConsumerFactory;
+  private final StreamPartitionMsgOffsetFactory _streamPartitionMsgOffsetFactory;
 
   // Segment end criteria
   private volatile long _consumeEndTime = 0;
@@ -255,13 +257,14 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
   private final String _tableNameWithType;
   private final List<String> _invertedIndexColumns;
   private final List<String> _textIndexColumns;
+  private final List<String> _fstIndexColumns;
   private final List<String> _noDictionaryColumns;
   private final List<String> _varLengthDictionaryColumns;
   private final String _sortedColumn;
-  private Logger segmentLogger;
+  private final Logger segmentLogger;
   private final String _tableStreamName;
   private final PinotDataBufferMemoryManager _memoryManager;
-  private AtomicLong _lastUpdatedRowsIndexed = new AtomicLong(0);
+  private final AtomicLong _lastUpdatedRowsIndexed = new AtomicLong(0);
   private final String _instanceId;
   private final ServerSegmentCompletionProtocolHandler _protocolHandler;
   private final long _consumeStartTime;
@@ -699,6 +702,23 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
     }
   }
 
+  @Override
+  public Map<String, String> getPartitionToCurrentOffset() {
+    Map<String, String> partitionToCurrentOffset = new HashMap<>();
+    partitionToCurrentOffset.put(String.valueOf(_streamPartitionId), _currentOffset.toString());
+    return partitionToCurrentOffset;
+  }
+
+  @Override
+  public ConsumerState getConsumerState() {
+    return _state == State.ERROR ? ConsumerState.NOT_CONSUMING : ConsumerState.CONSUMING;
+  }
+
+  @Override
+  public long getLastConsumedTimestamp() {
+    return _lastLogTime;
+  }
+
   @VisibleForTesting
   protected StreamPartitionMsgOffset getCurrentOffset() {
     return _currentOffset;
@@ -730,7 +750,7 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
       // Increment llc simultaneous segment builds.
       _serverMetrics.addValueToGlobalGauge(ServerGauge.LLC_SIMULTANEOUS_SEGMENT_BUILDS, 1L);
 
-      final long lockAquireTimeMillis = now();
+      final long lockAcquireTimeMillis = now();
       // Build a segment from in-memory rows.If buildTgz is true, then build the tar.gz file as well
       // TODO Use an auto-closeable object to delete temp resources.
       File tempSegmentFolder = new File(_resourceTmpDir, "tmp-" + _segmentNameStr + "-" + now());
@@ -738,8 +758,8 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
       RealtimeSegmentConverter converter =
           new RealtimeSegmentConverter(_realtimeSegment, tempSegmentFolder.getAbsolutePath(), _schema,
               _tableNameWithType, _tableConfig, _segmentZKMetadata.getSegmentName(), _sortedColumn,
-              _invertedIndexColumns, _textIndexColumns, _noDictionaryColumns, _varLengthDictionaryColumns,
-              _nullHandlingEnabled);
+              _invertedIndexColumns, _textIndexColumns, _fstIndexColumns, _noDictionaryColumns,
+              _varLengthDictionaryColumns, _nullHandlingEnabled);
       segmentLogger.info("Trying to build segment");
       try {
         converter.build(_segmentVersion, _serverMetrics);
@@ -748,8 +768,8 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
         FileUtils.deleteQuietly(tempSegmentFolder);
         return null;
       }
-      final long buildTimeMillis = now() - lockAquireTimeMillis;
-      final long waitTimeMillis = lockAquireTimeMillis - startTimeMillis;
+      final long buildTimeMillis = now() - lockAcquireTimeMillis;
+      final long waitTimeMillis = lockAcquireTimeMillis - startTimeMillis;
       segmentLogger
           .info("Successfully built segment in {} ms, after lockWaitTime {} ms", buildTimeMillis, waitTimeMillis);
 
@@ -1082,7 +1102,8 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
   // If the transition is OFFLINE to ONLINE, the caller should have downloaded the segment and we don't reach here.
   public LLRealtimeSegmentDataManager(RealtimeSegmentZKMetadata segmentZKMetadata, TableConfig tableConfig,
       RealtimeTableDataManager realtimeTableDataManager, String resourceDataDir, IndexLoadingConfig indexLoadingConfig,
-      Schema schema, LLCSegmentName llcSegmentName, Semaphore partitionConsumerSemaphore, ServerMetrics serverMetrics) {
+      Schema schema, LLCSegmentName llcSegmentName, Semaphore partitionConsumerSemaphore, ServerMetrics serverMetrics,
+      @Nullable PartitionUpsertMetadataManager partitionUpsertMetadataManager) {
     _segBuildSemaphore = realtimeTableDataManager.getSegmentBuildSemaphore();
     _segmentZKMetadata = (LLCRealtimeSegmentZKMetadata) segmentZKMetadata;
     _tableConfig = tableConfig;
@@ -1100,7 +1121,8 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
     String timeColumnName = tableConfig.getValidationConfig().getTimeColumnName();
     // TODO Validate configs
     IndexingConfig indexingConfig = _tableConfig.getIndexingConfig();
-    _partitionLevelStreamConfig = new PartitionLevelStreamConfig(_tableNameWithType, indexingConfig.getStreamConfigs());
+    _partitionLevelStreamConfig =
+        new PartitionLevelStreamConfig(_tableNameWithType, IngestionConfigUtils.getStreamConfigMap(_tableConfig));
     _streamConsumerFactory = StreamConsumerFactoryProvider.create(_partitionLevelStreamConfig);
     _streamPartitionMsgOffsetFactory =
         StreamConsumerFactoryProvider.create(_partitionLevelStreamConfig).createStreamMsgOffsetFactory();
@@ -1165,6 +1187,9 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
     Set<String> textIndexColumns = indexLoadingConfig.getTextIndexColumns();
     _textIndexColumns = new ArrayList<>(textIndexColumns);
 
+    Set<String> fstIndexColumns = indexLoadingConfig.getFSTIndexColumns();
+    _fstIndexColumns = new ArrayList<>(fstIndexColumns);
+
     // Start new realtime segment
     String consumerDir = realtimeTableDataManager.getConsumerDir();
     RealtimeSegmentConfig.Builder realtimeSegmentConfigBuilder =
@@ -1174,10 +1199,13 @@ public class LLRealtimeSegmentDataManager extends RealtimeSegmentDataManager {
             .setNoDictionaryColumns(indexLoadingConfig.getNoDictionaryColumns())
             .setVarLengthDictionaryColumns(indexLoadingConfig.getVarLengthDictionaryColumns())
             .setInvertedIndexColumns(invertedIndexColumns).setTextIndexColumns(textIndexColumns)
-            .setRealtimeSegmentZKMetadata(segmentZKMetadata).setOffHeap(_isOffHeap).setMemoryManager(_memoryManager)
+            .setFSTIndexColumns(fstIndexColumns).setJsonIndexColumns(indexLoadingConfig.getJsonIndexColumns())
+            .setH3IndexConfigs(indexLoadingConfig.getH3IndexConfigs()).setRealtimeSegmentZKMetadata(segmentZKMetadata)
+            .setOffHeap(_isOffHeap).setMemoryManager(_memoryManager)
             .setStatsHistory(realtimeTableDataManager.getStatsHistory())
             .setAggregateMetrics(indexingConfig.isAggregateMetrics()).setNullHandlingEnabled(_nullHandlingEnabled)
-            .setConsumerDir(consumerDir);
+            .setConsumerDir(consumerDir).setUpsertMode(tableConfig.getUpsertMode())
+            .setPartitionUpsertMetadataManager(partitionUpsertMetadataManager);
 
     // Create message decoder
     Set<String> fieldsToRead = IngestionUtils.getFieldsForRecordExtractor(_tableConfig.getIngestionConfig(), _schema);

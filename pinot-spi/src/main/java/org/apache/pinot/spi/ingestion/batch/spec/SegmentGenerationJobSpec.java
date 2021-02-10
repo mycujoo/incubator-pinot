@@ -111,6 +111,16 @@ public class SegmentGenerationJobSpec implements Serializable {
    */
   private PushJobSpec _pushJobSpec;
 
+  /**
+   * Should clean up output segment on job completion.
+   */
+  private boolean _cleanUpOutputDir;
+
+  /**
+   * TLS setting for controller access
+   */
+  private TlsSpec _tlsSpec;
+
   public ExecutionFrameworkSpec getExecutionFrameworkSpec() {
     return _executionFrameworkSpec;
   }
@@ -246,6 +256,22 @@ public class SegmentGenerationJobSpec implements Serializable {
 
   public void setSegmentCreationJobParallelism(int segmentCreationJobParallelism) {
     _segmentCreationJobParallelism = segmentCreationJobParallelism;
+  }
+
+  public void setCleanUpOutputDir(boolean cleanUpOutputDir) {
+    _cleanUpOutputDir = cleanUpOutputDir;
+  }
+
+  public boolean isCleanUpOutputDir() {
+    return _cleanUpOutputDir;
+  }
+
+  public TlsSpec getTlsSpec() {
+    return _tlsSpec;
+  }
+
+  public void setTlsSpec(TlsSpec tlsSpec) {
+    _tlsSpec = tlsSpec;
   }
 }
 

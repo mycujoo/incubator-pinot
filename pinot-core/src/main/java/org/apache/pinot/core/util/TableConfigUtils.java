@@ -19,14 +19,16 @@
 package org.apache.pinot.core.util;
 
 import com.google.common.base.Preconditions;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.pinot.common.tier.TierFactory;
 import org.apache.pinot.common.utils.CommonConstants;
 import org.apache.pinot.common.utils.config.TagNameUtils;
@@ -35,15 +37,21 @@ import org.apache.pinot.core.data.function.FunctionEvaluatorFactory;
 import org.apache.pinot.core.startree.v2.AggregationFunctionColumnPair;
 import org.apache.pinot.spi.config.table.FieldConfig;
 import org.apache.pinot.spi.config.table.IndexingConfig;
-import org.apache.pinot.spi.config.table.IngestionConfig;
+import org.apache.pinot.spi.config.table.RoutingConfig;
 import org.apache.pinot.spi.config.table.SegmentsValidationAndRetentionConfig;
 import org.apache.pinot.spi.config.table.StarTreeIndexConfig;
 import org.apache.pinot.spi.config.table.TableConfig;
 import org.apache.pinot.spi.config.table.TableType;
 import org.apache.pinot.spi.config.table.TierConfig;
+import org.apache.pinot.spi.config.table.UpsertConfig;
+import org.apache.pinot.spi.config.table.ingestion.BatchIngestionConfig;
 import org.apache.pinot.spi.config.table.ingestion.FilterConfig;
+import org.apache.pinot.spi.config.table.ingestion.IngestionConfig;
 import org.apache.pinot.spi.config.table.ingestion.TransformConfig;
 import org.apache.pinot.spi.data.Schema;
+import org.apache.pinot.spi.ingestion.batch.BatchConfig;
+import org.apache.pinot.spi.stream.StreamConfig;
+import org.apache.pinot.spi.utils.IngestionConfigUtils;
 import org.apache.pinot.spi.utils.TimeUtils;
 
 
@@ -71,11 +79,14 @@ public final class TableConfigUtils {
     if (tableConfig.getTableType() == TableType.REALTIME) {
       Preconditions.checkState(schema != null, "Schema should not be null for REALTIME table");
     }
+    // Sanitize the table config before validation
+    sanitize(tableConfig);
     validateValidationConfig(tableConfig, schema);
-    validateIngestionConfig(tableConfig.getIngestionConfig(), schema);
+    validateIngestionConfig(tableConfig, schema);
     validateTierConfigList(tableConfig.getTierConfigsList());
     validateIndexingConfig(tableConfig.getIndexingConfig(), schema);
-    validateFieldConfigList(tableConfig.getFieldConfigList(), schema);
+    validateFieldConfigList(tableConfig.getFieldConfigList(), tableConfig.getIndexingConfig(), schema);
+    validateUpsertConfig(tableConfig, schema);
   }
 
   /**
@@ -105,7 +116,7 @@ public final class TableConfigUtils {
           String.format("Table: %s, \"segmentsConfig\" field is missing in table config", tableName));
     }
 
-    String segmentPushType = segmentsConfig.getSegmentPushType();
+    String segmentPushType = IngestionConfigUtils.getBatchSegmentIngestionType(tableConfig);
     // segmentPushType is not needed for Realtime table
     if (tableConfig.getTableType() == TableType.OFFLINE && segmentPushType != null && !segmentPushType.isEmpty()) {
       if (!segmentPushType.equalsIgnoreCase("REFRESH") && !segmentPushType.equalsIgnoreCase("APPEND")) {
@@ -134,6 +145,7 @@ public final class TableConfigUtils {
    *
    * 2. For OFFLINE table
    * - checks for valid field spec for timeColumnName in schema, if timeColumnName and schema are non-null
+   * - for Dimension tables checks the primary key requirement
    *
    * 3. Checks peerDownloadSchema
    */
@@ -145,10 +157,16 @@ public final class TableConfigUtils {
       Preconditions.checkState(timeColumnName != null, "'timeColumnName' cannot be null in REALTIME table config");
     }
     // timeColumnName can be null in OFFLINE table
-    if (timeColumnName != null && schema != null) {
+    if (timeColumnName != null && !timeColumnName.isEmpty() && schema != null) {
       Preconditions.checkState(schema.getSpecForTimeColumn(timeColumnName) != null,
-          "Cannot find valid fieldSpec for timeColumn: %s from the table config, in the schema: %s", timeColumnName,
-          schema.getSchemaName());
+          "Cannot find valid fieldSpec for timeColumn: %s from the table config: %s, in the schema: %s", timeColumnName,
+          tableConfig.getTableName(), schema.getSchemaName());
+    }
+    if (tableConfig.isDimTable()) {
+      Preconditions.checkState(tableConfig.getTableType() == TableType.OFFLINE,
+          "Dimension table must be of OFFLINE table type.");
+      Preconditions.checkState(schema != null, "Dimension table must have an associated schema");
+      Preconditions.checkState(schema.getPrimaryKeyColumns().size() > 0, "Dimension table must have primary key[s]");
     }
 
     String peerSegmentDownloadScheme = validationConfig.getPeerSegmentDownloadScheme();
@@ -170,9 +188,50 @@ public final class TableConfigUtils {
    * 3. checks for null column name or transform function in transform config
    * 4. validity of transform function string
    * 5. checks for source fields used in destination columns
+   * 6. ingestion type for dimension tables
    */
-  private static void validateIngestionConfig(@Nullable IngestionConfig ingestionConfig, @Nullable Schema schema) {
+  public static void validateIngestionConfig(TableConfig tableConfig, @Nullable Schema schema) {
+    IngestionConfig ingestionConfig = tableConfig.getIngestionConfig();
+
     if (ingestionConfig != null) {
+      String tableNameWithType = tableConfig.getTableName();
+
+      // Batch
+      if (ingestionConfig.getBatchIngestionConfig() != null) {
+        BatchIngestionConfig cfg = ingestionConfig.getBatchIngestionConfig();
+        List<Map<String, String>> batchConfigMaps = cfg.getBatchConfigMaps();
+        try {
+          if (CollectionUtils.isNotEmpty(batchConfigMaps)) {
+            // Validate that BatchConfig can be created
+            batchConfigMaps.forEach(b -> new BatchConfig(tableNameWithType, b));
+          }
+        } catch (Exception e) {
+          throw new IllegalStateException("Could not create BatchConfig using the batchConfig map", e);
+        }
+        if (tableConfig.isDimTable()) {
+          Preconditions.checkState(cfg.getSegmentIngestionType().equalsIgnoreCase("REFRESH"),
+              "Dimension tables must have segment ingestion type REFRESH");
+        }
+      }
+      if (tableConfig.isDimTable()){
+        Preconditions.checkState(ingestionConfig.getBatchIngestionConfig() != null,
+            "Dimension tables must have batch ingestion configuration");
+      }
+
+      // Stream
+      if (ingestionConfig.getStreamIngestionConfig() != null) {
+        IndexingConfig indexingConfig = tableConfig.getIndexingConfig();
+        Preconditions.checkState(indexingConfig == null || MapUtils.isEmpty(indexingConfig.getStreamConfigs()),
+            "Should not use indexingConfig#getStreamConfigs if ingestionConfig#StreamIngestionConfig is provided");
+        List<Map<String, String>> streamConfigMaps = ingestionConfig.getStreamIngestionConfig().getStreamConfigMaps();
+        Preconditions.checkState(streamConfigMaps.size() == 1, "Only 1 stream is supported in REALTIME table");
+        try {
+          // Validate that StreamConfig can be created
+          new StreamConfig(tableNameWithType, streamConfigMaps.get(0));
+        } catch (Exception e) {
+          throw new IllegalStateException("Could not create StreamConfig using the streamConfig map", e);
+        }
+      }
 
       // Filter config
       FilterConfig filterConfig = ingestionConfig.getFilterConfig();
@@ -191,12 +250,12 @@ public final class TableConfigUtils {
       List<TransformConfig> transformConfigs = ingestionConfig.getTransformConfigs();
       if (transformConfigs != null) {
         Set<String> transformColumns = new HashSet<>();
-        Set<String> argumentColumns = new HashSet<>();
         for (TransformConfig transformConfig : transformConfigs) {
           String columnName = transformConfig.getColumnName();
           if (schema != null) {
             Preconditions.checkState(schema.getFieldSpecFor(columnName) != null,
-                "The destination column of the transform function must be present in the schema");
+                "The destination column '" + columnName
+                    + "' of the transform function must be present in the schema");
           }
           String transformFunction = transformConfig.getTransformFunction();
           if (columnName == null || transformFunction == null) {
@@ -219,15 +278,42 @@ public final class TableConfigUtils {
                 "Arguments of a transform function '" + arguments + "' cannot contain the destination column '"
                     + columnName + "'");
           }
-          argumentColumns.addAll(arguments);
-        }
-        // TODO: remove this once we add support for derived columns/chained transform functions
-        if (!Collections.disjoint(transformColumns, argumentColumns)) {
-          throw new IllegalStateException(
-              "Derived columns not supported yet. Cannot use a transform column as argument to another transform functions");
         }
       }
     }
+  }
+
+  /**
+   * Validates the upsert-related configurations
+   *  - check table type is realtime
+   *  - the primary key exists on the schema
+   *  - strict replica-group is configured for routing type
+   *  - consumer type must be low-level
+   */
+  protected static void validateUpsertConfig(TableConfig tableConfig, Schema schema) {
+    if (tableConfig.getUpsertMode() == UpsertConfig.Mode.NONE) {
+      return;
+    }
+    // check table type is realtime
+    Preconditions
+        .checkState(tableConfig.getTableType() == TableType.REALTIME, "Upsert table is for realtime table only.");
+    // primary key exists
+    Preconditions.checkState(CollectionUtils.isNotEmpty(schema.getPrimaryKeyColumns()),
+        "Upsert table must have primary key columns in the schema");
+    // consumer type must be low-level
+    Map<String, String> streamConfigsMap = IngestionConfigUtils.getStreamConfigMap(tableConfig);
+    StreamConfig streamConfig = new StreamConfig(tableConfig.getTableName(), streamConfigsMap);
+    Preconditions.checkState(streamConfig.hasLowLevelConsumerType() && !streamConfig.hasHighLevelConsumerType(),
+        "Upsert table must use low-level streaming consumer type");
+    // replica group is configured for routing
+    Preconditions.checkState(
+        tableConfig.getRoutingConfig() != null && RoutingConfig.STRICT_REPLICA_GROUP_INSTANCE_SELECTOR_TYPE
+            .equalsIgnoreCase(tableConfig.getRoutingConfig().getInstanceSelectorType()),
+        "Upsert table must use strict replica-group (i.e. strictReplicaGroup) based routing");
+    // no startree index
+    Preconditions.checkState(
+        CollectionUtils.isEmpty(tableConfig.getIndexingConfig().getStarTreeIndexConfigs()) && !tableConfig
+            .getIndexingConfig().isEnableDefaultStarTree(), "The upsert table cannot have star-tree index.");
   }
 
   /**
@@ -386,7 +472,8 @@ public final class TableConfigUtils {
    * Validates the Field Config List in the given TableConfig
    * Ensures that every referred column name exists in the corresponding schema
    */
-  private static void validateFieldConfigList(@Nullable List<FieldConfig> fieldConfigList, @Nullable Schema schema) {
+  private static void validateFieldConfigList(@Nullable List<FieldConfig> fieldConfigList,
+      @Nullable IndexingConfig indexingConfigs, @Nullable Schema schema) {
     if (fieldConfigList == null || schema == null) {
       return;
     }
@@ -395,6 +482,42 @@ public final class TableConfigUtils {
       String columnName = fieldConfig.getName();
       Preconditions.checkState(schema.getFieldSpecFor(columnName) != null,
           "Column Name " + columnName + " defined in field config list must be a valid column defined in the schema");
+
+      if (fieldConfig.getEncodingType() == FieldConfig.EncodingType.DICTIONARY &&
+          indexingConfigs.getNoDictionaryColumns() != null) {
+        Preconditions.checkArgument(!indexingConfigs.getNoDictionaryColumns().contains(columnName),
+            "FieldConfig encoding type is different from indexingConfig for column: " + columnName);
+      }
+      // FST Index is only available on dictionary encoded columns.
+      if (fieldConfig.getIndexType() == FieldConfig.IndexType.FST) {
+        Preconditions.checkArgument(fieldConfig.getEncodingType() == FieldConfig.EncodingType.DICTIONARY,
+            "FST Index is only enabled on dictionary encoded columns");
+      }
     }
+  }
+
+  private static void sanitize(TableConfig tableConfig) {
+    tableConfig.setIndexingConfig(sanitizeIndexingConfig(tableConfig.getIndexingConfig()));
+  }
+
+  private static IndexingConfig sanitizeIndexingConfig(IndexingConfig indexingConfig) {
+    indexingConfig.setInvertedIndexColumns(sanitizeListBasedIndexingColumns(indexingConfig.getInvertedIndexColumns()));
+    indexingConfig.setNoDictionaryColumns(sanitizeListBasedIndexingColumns(indexingConfig.getNoDictionaryColumns()));
+    indexingConfig.setSortedColumn(sanitizeListBasedIndexingColumns(indexingConfig.getSortedColumn()));
+    indexingConfig.setBloomFilterColumns(sanitizeListBasedIndexingColumns(indexingConfig.getBloomFilterColumns()));
+    indexingConfig
+        .setOnHeapDictionaryColumns(sanitizeListBasedIndexingColumns(indexingConfig.getOnHeapDictionaryColumns()));
+    indexingConfig.setRangeIndexColumns(sanitizeListBasedIndexingColumns(indexingConfig.getRangeIndexColumns()));
+    indexingConfig.setVarLengthDictionaryColumns(
+        sanitizeListBasedIndexingColumns(indexingConfig.getVarLengthDictionaryColumns()));
+    return indexingConfig;
+  }
+
+  private static List<String> sanitizeListBasedIndexingColumns(List<String> indexingColumns) {
+    if (indexingColumns != null) {
+      // Disregard the empty string value for indexing columns
+      return indexingColumns.stream().filter(v -> !v.isEmpty()).collect(Collectors.toList());
+    }
+    return null;
   }
 }

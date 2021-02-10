@@ -21,6 +21,7 @@ package org.apache.pinot.spi.data.readers;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -28,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
+import org.apache.pinot.spi.utils.ByteArray;
 import org.apache.pinot.spi.utils.EqualityUtils;
 import org.apache.pinot.spi.utils.JsonUtils;
 
@@ -48,7 +50,7 @@ import org.apache.pinot.spi.utils.JsonUtils;
  *  MV: Object[] or List of Byte, Character, Short, Integer, Long, Float, Double, String
  *  We should not be using Boolean, Byte, Character and Short to keep it simple
  */
-public class GenericRow {
+public class GenericRow implements Serializable {
 
   /**
    * This key is used by a Decoder/RecordReader to handle 1 record to many records flattening.
@@ -128,7 +130,11 @@ public class GenericRow {
     int numPrimaryKeyColumns = primaryKeyColumns.size();
     Object[] values = new Object[numPrimaryKeyColumns];
     for (int i = 0; i < numPrimaryKeyColumns; i++) {
-      values[i] = getValue(primaryKeyColumns.get(i));
+      Object value = getValue(primaryKeyColumns.get(i));
+      if (value instanceof byte[]) {
+        value = new ByteArray((byte[]) value);
+      }
+      values[i] = value;
     }
     return new PrimaryKey(values);
   }

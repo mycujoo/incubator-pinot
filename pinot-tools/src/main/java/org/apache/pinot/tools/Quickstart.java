@@ -24,7 +24,6 @@ import com.google.common.collect.Lists;
 import java.io.File;
 import java.net.URL;
 import org.apache.commons.io.FileUtils;
-import org.apache.pinot.spi.data.readers.FileFormat;
 import org.apache.pinot.spi.plugin.PluginManager;
 import org.apache.pinot.tools.admin.command.QuickstartRunner;
 
@@ -42,6 +41,10 @@ public class Quickstart {
     Color(String code) {
       _code = code;
     }
+  }
+
+  public String getBootstrapDataDir() {
+    return "examples/batch/baseballStats";
   }
 
   public static void printStatus(Color color, String message) {
@@ -135,32 +138,31 @@ public class Quickstart {
   public void execute()
       throws Exception {
     File quickstartTmpDir = new File(FileUtils.getTempDirectory(), String.valueOf(System.currentTimeMillis()));
-    File configDir = new File(quickstartTmpDir, "configs");
-    File dataDir = new File(quickstartTmpDir, "data");
-    Preconditions.checkState(configDir.mkdirs());
+    File baseDir = new File(quickstartTmpDir, "baseballStats");
+    File dataDir = new File(baseDir, "rawdata");
     Preconditions.checkState(dataDir.mkdirs());
 
-    File schemaFile = new File(configDir, "baseballStats_schema.json");
-    File dataFile = new File(configDir, "baseballStats_data.csv");
-    File tableConfigFile = new File(configDir, "baseballStats_offline_table_config.json");
-    File ingestionJobSpecFile = new File(configDir, "ingestionJobSpec.yaml");
+    File schemaFile = new File(baseDir, "baseballStats_schema.json");
+    File tableConfigFile = new File(baseDir, "baseballStats_offline_table_config.json");
+    File ingestionJobSpecFile = new File(baseDir, "ingestionJobSpec.yaml");
+    File dataFile = new File(dataDir, "baseballStats_data.csv");
 
     ClassLoader classLoader = Quickstart.class.getClassLoader();
-    URL resource = classLoader.getResource("examples/batch/baseballStats/baseballStats_schema.json");
+    URL resource = classLoader.getResource(getBootstrapDataDir() + "/baseballStats_schema.json");
     com.google.common.base.Preconditions.checkNotNull(resource);
     FileUtils.copyURLToFile(resource, schemaFile);
-    resource = classLoader.getResource("examples/batch/baseballStats/rawdata/baseballStats_data.csv");
+    resource = classLoader.getResource(getBootstrapDataDir() + "/rawdata/baseballStats_data.csv");
     com.google.common.base.Preconditions.checkNotNull(resource);
     FileUtils.copyURLToFile(resource, dataFile);
-    resource = classLoader.getResource("examples/batch/baseballStats/ingestionJobSpec.yaml");
-    com.google.common.base.Preconditions.checkNotNull(resource);
-    FileUtils.copyURLToFile(resource, ingestionJobSpecFile);
-    resource = classLoader.getResource("examples/batch/baseballStats/baseballStats_offline_table_config.json");
+    resource = classLoader.getResource(getBootstrapDataDir() + "/ingestionJobSpec.yaml");
+    if (resource != null) {
+      FileUtils.copyURLToFile(resource, ingestionJobSpecFile);
+    }
+    resource = classLoader.getResource(getBootstrapDataDir() + "/baseballStats_offline_table_config.json");
     com.google.common.base.Preconditions.checkNotNull(resource);
     FileUtils.copyURLToFile(resource, tableConfigFile);
 
-    QuickstartTableRequest request =
-        new QuickstartTableRequest("baseballStats", schemaFile, tableConfigFile, ingestionJobSpecFile, FileFormat.CSV);
+    QuickstartTableRequest request = new QuickstartTableRequest(baseDir.getAbsolutePath());
     final QuickstartRunner runner = new QuickstartRunner(Lists.newArrayList(request), 1, 1, 1, dataDir);
 
     printStatus(Color.CYAN, "***** Starting Zookeeper, controller, broker and server *****");
@@ -174,10 +176,9 @@ public class Quickstart {
         e.printStackTrace();
       }
     }));
-    printStatus(Color.CYAN, "***** Adding baseballStats table *****");
-    runner.addTable();
-    printStatus(Color.CYAN, "***** Launch data ingestion job to build index segment for baseballStats and push to controller *****");
-    runner.launchDataIngestionJob();
+    printStatus(Color.CYAN, "***** Bootstrap baseballStats table *****");
+    runner.bootstrapTable();
+
     printStatus(Color.CYAN, "***** Waiting for 5 seconds for the server to fetch the assigned segment *****");
     Thread.sleep(5000);
 

@@ -22,10 +22,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.pinot.common.request.Expression;
 import org.apache.pinot.common.request.FilterOperator;
 import org.apache.pinot.common.request.Function;
 import org.apache.pinot.common.request.Literal;
+import org.apache.pinot.common.utils.CommonConstants.Query.Range;
 import org.apache.pinot.pql.parsers.pql2.ast.FilterKind;
 
 
@@ -57,6 +59,7 @@ public class ParserUtils {
     FILTER_OPERATOR_MAP.put(FilterKind.IS_NULL, FilterOperator.IS_NULL);
     FILTER_OPERATOR_MAP.put(FilterKind.IS_NOT_NULL, FilterOperator.IS_NOT_NULL);
     FILTER_OPERATOR_MAP.put(FilterKind.TEXT_MATCH, FilterOperator.TEXT_MATCH);
+    FILTER_OPERATOR_MAP.put(FilterKind.JSON_MATCH, FilterOperator.JSON_MATCH);
   }
 
   /**
@@ -143,26 +146,21 @@ public class ParserUtils {
     boolean treatLiteralAsIdentifier = true;
 
     if (FilterKind.LESS_THAN == filterKind) {
-
       String value = standardizeExpression(operands.get(1), treatLiteralAsIdentifier);
-      rangeExpression = "(*\t\t" + value + ")";
+      rangeExpression = Range.LOWER_UNBOUNDED + value + Range.UPPER_EXCLUSIVE;
     } else if (FilterKind.LESS_THAN_OR_EQUAL == filterKind) {
-
       String value = standardizeExpression(operands.get(1), treatLiteralAsIdentifier);
-      rangeExpression = "(*\t\t" + value + "]";
+      rangeExpression = Range.LOWER_UNBOUNDED + value + Range.UPPER_INCLUSIVE;
     } else if (FilterKind.GREATER_THAN == filterKind) {
-
       String value = standardizeExpression(operands.get(1), treatLiteralAsIdentifier);
-      rangeExpression = "(" + value + "\t\t*)";
+      rangeExpression = Range.LOWER_EXCLUSIVE + value + Range.UPPER_UNBOUNDED;
     } else if (FilterKind.GREATER_THAN_OR_EQUAL == filterKind) {
-
       String value = standardizeExpression(operands.get(1), treatLiteralAsIdentifier);
-      rangeExpression = "[" + value + "\t\t*)";
+      rangeExpression = Range.LOWER_INCLUSIVE + value + Range.UPPER_UNBOUNDED;
     } else if (FilterKind.BETWEEN == filterKind) {
-
       String left = standardizeExpression(operands.get(1), treatLiteralAsIdentifier);
       String right = standardizeExpression(operands.get(2), treatLiteralAsIdentifier);
-      rangeExpression = "[" + left + "\t\t" + right + "]";
+      rangeExpression = Range.LOWER_INCLUSIVE + left + Range.DELIMITER + right + Range.UPPER_INCLUSIVE;
     } else {
       throw new UnsupportedOperationException("Unknown Filter Kind:" + filterKind);
     }
@@ -187,14 +185,19 @@ public class ParserUtils {
     switch (expression.getType()) {
       case LITERAL:
         Literal literal = expression.getLiteral();
-        // Force single quote on non-string literal inside a function.
-        if (forceSingleQuoteOnNonStringLiteral && !literal.isSetStringValue()) {
-          return "'" + literal.getFieldValue() + "'";
-        }
-        if (treatLiteralAsIdentifier || !literal.isSetStringValue()) {
-          return literal.getFieldValue().toString();
+        String literalString = literal.getFieldValue().toString();
+        if (literal.isSetStringValue()) {
+          if (treatLiteralAsIdentifier) {
+            return literalString;
+          } else {
+            return "'" + StringUtils.replace(literalString, "'", "''") + "'";
+          }
         } else {
-          return "'" + literal.getFieldValue() + "'";
+          if (forceSingleQuoteOnNonStringLiteral) {
+            return "'" + literalString + "'";
+          } else {
+            return literalString;
+          }
         }
       case IDENTIFIER:
         return expression.getIdentifier().getName();

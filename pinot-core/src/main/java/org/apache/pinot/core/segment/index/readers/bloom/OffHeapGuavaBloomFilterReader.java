@@ -18,48 +18,20 @@
  */
 package org.apache.pinot.core.segment.index.readers.bloom;
 
-import com.google.common.base.Preconditions;
-import com.google.common.primitives.Longs;
-import org.apache.pinot.core.segment.index.readers.BloomFilterReader;
 import org.apache.pinot.core.segment.memory.PinotDataBuffer;
 
 
 /**
  * Off-heap reader for guava bloom filter.
- * <p>The behavior should be aligned with {@link com.google.common.hash.BloomFilter}.
  */
-@SuppressWarnings("UnstableApiUsage")
-public class OffHeapGuavaBloomFilterReader implements BloomFilterReader {
-  // Format of the data buffer header:
-  //   - Strategy ordinal: 1 byte
-  //   - Number of hash functions: 1 byte
-  //   - Number of long values: 4 bytes
-  private static final int STRATEGY_ORDINAL_OFFSET = 0;
-  private static final int NUM_HASH_FUNCTIONS_OFFSET = 1;
-  private static final int NUM_LONGS_OFFSET = 2;
-  private static final int HEADER_SIZE = 6;
-
-  private final int _numHashFunctions;
-  private final long _numBits;
-  private final PinotDataBuffer _valueBuffer;
+public class OffHeapGuavaBloomFilterReader extends BaseGuavaBloomFilterReader {
 
   public OffHeapGuavaBloomFilterReader(PinotDataBuffer dataBuffer) {
-    byte strategyOrdinal = dataBuffer.getByte(STRATEGY_ORDINAL_OFFSET);
-    Preconditions.checkState(strategyOrdinal == 1, "Unsupported strategy ordinal: %s", strategyOrdinal);
-    _numHashFunctions = dataBuffer.getByte(NUM_HASH_FUNCTIONS_OFFSET) & 0xFF;
-    _numBits = (long) dataBuffer.getInt(NUM_LONGS_OFFSET) * Long.SIZE;
-    _valueBuffer = dataBuffer.view(HEADER_SIZE, dataBuffer.size());
+    super(dataBuffer);
   }
 
   @Override
-  public boolean mightContain(String value) {
-    return mightContain(GuavaBloomFilterReaderUtils.hash(value));
-  }
-
-  @Override
-  public boolean mightContain(byte[] hash) {
-    long hash1 = Longs.fromBytes(hash[7], hash[6], hash[5], hash[4], hash[3], hash[2], hash[1], hash[0]);
-    long hash2 = Longs.fromBytes(hash[15], hash[14], hash[13], hash[12], hash[11], hash[10], hash[9], hash[8]);
+  public boolean mightContain(long hash1, long hash2) {
     long combinedHash = hash1;
     for (int i = 0; i < _numHashFunctions; i++) {
       long bitIndex = (combinedHash & Long.MAX_VALUE) % _numBits;
@@ -74,11 +46,5 @@ public class OffHeapGuavaBloomFilterReader implements BloomFilterReader {
       combinedHash += hash2;
     }
     return true;
-  }
-
-  @Override
-  public void close() {
-    // NOTE: DO NOT close the PinotDataBuffer here because it is tracked by the caller and might be reused later. The
-    // caller is responsible of closing the PinotDataBuffer.
   }
 }

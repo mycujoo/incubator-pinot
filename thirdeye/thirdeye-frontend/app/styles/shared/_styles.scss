@@ -54,7 +54,7 @@ body {
 .te-table-global-filter {
   display: inline-block;
   padding-bottom: 5px;
-  padding-right:5px;
+  padding-right: 5px;
 }
 
 .te-column-dropdown {
@@ -87,6 +87,11 @@ body {
   }
 }
 
+.te-range-picker {
+  input {
+    border-radius: 20px;
+  }
+}
 .te-icon {
   &__inline-link {
     color: $te-link-blue;
@@ -206,7 +211,6 @@ body {
       width: 600px;
       float: left;
       margin-left: -15px;
-      display: inline-block;
       color: app-shade(black, 7);
     }
 
@@ -233,35 +237,52 @@ body {
 }
 
 .te-content-block {
-  font-family: "Source Sans Pro", sans-serif;
+  font-family: 'Source Sans Pro', sans-serif;
   border-radius: 5px;
-  border: 2px solid app-shade(black, 1);
-  margin: 10px 0 20px 0;
   background: white;
   padding: 24px;
 
+  &__date-picker-section {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+
+    .te-range-picker {
+      margin-left: 10px;
+      flex-basis: 35%;
+
+      display: flex;
+      align-items: center;
+    }
+
+    &--disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+  }
+
+  &__date-picker-label {
+    margin-bottom: 15px;
+
+    color: rgba(0, 0, 0, 0.9);
+    font-weight: 500;
+    font-size: 14px;
+  }
+
   &__alert-performance {
-    display: inline-block;
-    width: calc(80% - 20px);
-    margin-right: 10px;
-    font-family: "Source Sans Pro", sans-serif;
+    font-family: 'Source Sans Pro', sans-serif;
     background: white;
     padding: 24px;
-    padding-bottom: 100%;
-    margin-bottom: -100%;
+    flex-basis: 75%;
     border-right: 2px solid app-shade(black, 1);
   }
 
   &__detection-health {
-    width: 20%;
-    display: inline-block;
-    float: right;
     margin-left: 10px;
-    font-family: "Source Sans Pro", sans-serif;
+    font-family: 'Source Sans Pro', sans-serif;
     background: white;
     padding: 24px;
-    padding-bottom: 100%;
-    margin-bottom: -100%;
+    flex-basis: 25%;
   }
 
   &__performance-health-wrapper {
@@ -269,6 +290,7 @@ body {
     border-radius: 5px;
     border: 2px solid app-shade(black, 1);
     background: white;
+    display: flex;
   }
 }
 
@@ -310,6 +332,10 @@ body {
   &--dark {
     color: app-shade(black, 0.85);
   }
+
+  &--disable-click {
+    pointer-events: none;
+  }
 }
 
 .te-input {
@@ -340,7 +366,7 @@ body {
     background-color: rgba(0, 0, 0, 0.03);
   }
 
-  &:hover:not(:disabled){
+  &:hover:not(:disabled) {
     border-color: app-shade(black, 0.55);
   }
 
@@ -368,6 +394,15 @@ body {
     width: 100%;
     border-top: 1px app-shade(black, 1) solid;
   }
+
+  &__middle {
+    background: white;
+    padding-bottom: 25px;
+  }
+
+  &__bottom {
+    padding-top: 25px;
+  }
 }
 
 .te-self-serve {
@@ -392,7 +427,7 @@ body {
     font-size: $te-font-size-small;
     color: $te-link-blue;
     font-weight: 600;
-    letter-spacing: .03em;
+    letter-spacing: 0.03em;
     float: right;
     margin: -15px 10px 0 0;
     cursor: pointer;
@@ -448,17 +483,17 @@ body {
   &__number {
     color: black;
     &--good {
-      color: #4B9D27;
+      color: #4b9d27;
       font-weight: normal;
     }
 
     &--average {
-      color: #F5A623;
+      color: #f5a623;
       font-weight: normal;
     }
 
     &--poor {
-      color: #FF4B51;
+      color: #ff4b51;
       font-weight: normal;
     }
   }
@@ -590,7 +625,6 @@ body {
   }
 
   &__val-glyph {
-
     &--middle {
       padding: 26px 10px 0 9px;
       font-size: 19px;
@@ -722,7 +756,7 @@ body {
   &__title {
     font-size: 40px;
     font-weight: 100;
-    letter-spacing: .02em;
+    letter-spacing: 0.02em;
   }
 
   &__text {
@@ -741,7 +775,7 @@ body {
     &:before {
       display: block;
       position: absolute;
-      content: "";
+      content: '';
       left: -200px;
       width: 200px;
       height: 4px;
@@ -751,9 +785,15 @@ body {
   }
 }
 
+.te-alert-page {
+  &__subtitle {
+    margin: 0 0 $te-content-container-margin 0;
+  }
+}
+
 .glyphicon-spin {
-    -webkit-animation: spin 1000ms infinite linear;
-    animation: spin 1000ms infinite linear;
+  -webkit-animation: spin 1000ms infinite linear;
+  animation: spin 1000ms infinite linear;
 }
 
 .te-search-results {
@@ -768,7 +808,7 @@ body {
   &__list {
     list-style: none;
     font-weight: normal;
-    margin-bottom: 0;
+    margin-top: 17px;
 
     &--summary-block {
       padding: 0;
@@ -777,13 +817,6 @@ body {
     &--details-block {
       padding: 0;
     }
-  }
-
-  &__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 14px;
   }
 
   &__row {
@@ -796,12 +829,10 @@ body {
 
     &--list {
       display: inline-block;
-      width: 137px;
-      min-width: 137px;
       font-size: 15px;
       overflow: hidden;
       text-overflow: ellipsis;
-      text-align: right;
+      text-align: left;
       margin-right: 10px;
       color: app-shade(black, 4);
     }
@@ -819,10 +850,19 @@ body {
   }
 
   &__value {
+    flex-shrink: 9015;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: black;
-    max-height: 19px;
+
+    &--remaining-metric-count {
+      font-family: Lato;
+      font-style: normal;
+      font-weight: normal;
+      font-size: 14px;
+      line-height: 20px;
+
+      color: #0073b1;
+    }
   }
 
   &__value-solo {
@@ -836,21 +876,25 @@ body {
   &__title-group {
     color: app-shade(black, 0.85);
     font-size: 21px;
-    display: flex;
-    align-items: center;
-    flex-shrink: 1;
-    overflow: hidden;
   }
 
   &__title {
     min-width: 95px;
+    display: flex;
+  }
+
+  &__title-link {
+    line-height: 25px;
+    overflow: hidden;
   }
 
   &__title-name {
+    height: 31px;
+    line-height: 35px;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 660px;
-    display: inline-block;
+    font-weight: 600;
+    margin: 0 $te-spacing 0 0;
   }
 
   &__edit-button {
@@ -884,7 +928,7 @@ body {
     background-color: app-shade(black, 3);
     font-size: 13px;
     text-transform: uppercase;
-    letter-spacing: .08em;
+    letter-spacing: 0.08em;
     line-height: 20px;
     border-radius: 3px;
     padding: 4px 8px;
@@ -894,6 +938,7 @@ body {
     width: auto;
     font-weight: bold;
     border: 2px solid;
+    cursor: default;
 
     &--list {
       margin: 3px 10px 0 0;
@@ -940,7 +985,6 @@ body {
   }
 
   &__a-tag {
-
     &--good {
       text-decoration: none !important;
       color: $te-good !important;

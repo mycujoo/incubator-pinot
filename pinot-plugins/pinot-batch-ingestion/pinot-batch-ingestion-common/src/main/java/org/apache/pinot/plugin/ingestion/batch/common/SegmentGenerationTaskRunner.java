@@ -20,14 +20,12 @@ package org.apache.pinot.plugin.ingestion.batch.common;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
-import java.io.IOException;
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import org.apache.pinot.core.indexsegment.generator.SegmentGeneratorConfig;
 import org.apache.pinot.core.segment.creator.impl.SegmentIndexCreationDriverImpl;
+import org.apache.pinot.core.segment.name.FixedSegmentNameGenerator;
 import org.apache.pinot.core.segment.name.NormalizedDateSegmentNameGenerator;
 import org.apache.pinot.core.segment.name.SegmentNameGenerator;
 import org.apache.pinot.core.segment.name.SimpleSegmentNameGenerator;
@@ -35,20 +33,24 @@ import org.apache.pinot.spi.config.table.SegmentsValidationAndRetentionConfig;
 import org.apache.pinot.spi.config.table.TableConfig;
 import org.apache.pinot.spi.data.DateTimeFieldSpec;
 import org.apache.pinot.spi.data.DateTimeFormatSpec;
-import org.apache.pinot.spi.data.FieldSpec;
 import org.apache.pinot.spi.data.Schema;
-import org.apache.pinot.spi.data.TimeFieldSpec;
 import org.apache.pinot.spi.data.readers.RecordReaderConfig;
 import org.apache.pinot.spi.ingestion.batch.spec.SegmentGenerationTaskSpec;
 import org.apache.pinot.spi.ingestion.batch.spec.SegmentNameGeneratorSpec;
 import org.apache.pinot.spi.plugin.PluginManager;
+import org.apache.pinot.spi.utils.IngestionConfigUtils;
 import org.apache.pinot.spi.utils.JsonUtils;
 
 
+@SuppressWarnings("serial")
 public class SegmentGenerationTaskRunner implements Serializable {
 
+  public static final String FIXED_SEGMENT_NAME_GENERATOR = "fixed";
   public static final String SIMPLE_SEGMENT_NAME_GENERATOR = "simple";
   public static final String NORMALIZED_DATE_SEGMENT_NAME_GENERATOR = "normalizedDate";
+
+  // For FixedSegmentNameGenerator
+  public static final String SEGMENT_NAME = "segment.name";
 
   // For SimpleSegmentNameGenerator
   public static final String SEGMENT_NAME_POSTFIX = "segment.name.postfix";
@@ -68,7 +70,7 @@ public class SegmentGenerationTaskRunner implements Serializable {
 
   public String run()
       throws Exception {
-    TableConfig tableConfig = JsonUtils.jsonNodeToObject(_taskSpec.getTableConfig(), TableConfig.class);
+    TableConfig tableConfig = _taskSpec.getTableConfig();
     String tableName = tableConfig.getTableName();
     Schema schema = _taskSpec.getSchema();
 
@@ -98,6 +100,7 @@ public class SegmentGenerationTaskRunner implements Serializable {
     segmentGeneratorConfig.setReaderConfig(recordReaderConfig);
     segmentGeneratorConfig.setRecordReaderPath(_taskSpec.getRecordReaderSpec().getClassName());
     segmentGeneratorConfig.setInputFilePath(_taskSpec.getInputFilePath());
+    segmentGeneratorConfig.setCustomProperties(_taskSpec.getCustomProperties());
 
     //build segment
     SegmentIndexCreationDriverImpl segmentIndexCreationDriver = new SegmentIndexCreationDriverImpl();
@@ -106,9 +109,8 @@ public class SegmentGenerationTaskRunner implements Serializable {
     return segmentIndexCreationDriver.getSegmentName();
   }
 
-  private SegmentNameGenerator getSegmentNameGenerator()
-      throws IOException {
-    TableConfig tableConfig = JsonUtils.jsonNodeToObject(_taskSpec.getTableConfig(), TableConfig.class);
+  private SegmentNameGenerator getSegmentNameGenerator() {
+    TableConfig tableConfig = _taskSpec.getTableConfig();
     String tableName = tableConfig.getTableName();
 
     Schema schema = _taskSpec.getSchema();
@@ -125,12 +127,14 @@ public class SegmentGenerationTaskRunner implements Serializable {
       segmentNameGeneratorConfigs = new HashMap<>();
     }
     switch (segmentNameGeneratorType) {
+      case FIXED_SEGMENT_NAME_GENERATOR:
+        return new FixedSegmentNameGenerator(segmentNameGeneratorConfigs.get(SEGMENT_NAME));
       case SIMPLE_SEGMENT_NAME_GENERATOR:
         return new SimpleSegmentNameGenerator(tableName, segmentNameGeneratorConfigs.get(SEGMENT_NAME_POSTFIX));
       case NORMALIZED_DATE_SEGMENT_NAME_GENERATOR:
         SegmentsValidationAndRetentionConfig validationConfig = tableConfig.getValidationConfig();
         DateTimeFormatSpec dateTimeFormatSpec = null;
-        String timeColumnName = tableConfig.getValidationConfig().getTimeColumnName();
+        String timeColumnName = validationConfig.getTimeColumnName();
 
         if (timeColumnName != null) {
           DateTimeFieldSpec dateTimeFieldSpec = schema.getSpecForTimeColumn(timeColumnName);
@@ -140,7 +144,8 @@ public class SegmentGenerationTaskRunner implements Serializable {
         }
         return new NormalizedDateSegmentNameGenerator(tableName, segmentNameGeneratorConfigs.get(SEGMENT_NAME_PREFIX),
             Boolean.parseBoolean(segmentNameGeneratorConfigs.get(EXCLUDE_SEQUENCE_ID)),
-            validationConfig.getSegmentPushType(), validationConfig.getSegmentPushFrequency(), dateTimeFormatSpec);
+            IngestionConfigUtils.getBatchSegmentIngestionType(tableConfig),
+            IngestionConfigUtils.getBatchSegmentIngestionFrequency(tableConfig), dateTimeFormatSpec);
       default:
         throw new UnsupportedOperationException("Unsupported segment name generator type: " + segmentNameGeneratorType);
     }

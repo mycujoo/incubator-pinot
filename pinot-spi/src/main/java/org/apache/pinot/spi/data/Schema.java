@@ -28,6 +28,7 @@ import com.google.common.base.Preconditions;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -44,6 +45,8 @@ import org.apache.pinot.spi.utils.JsonUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.pinot.spi.data.FieldSpec.DataType.STRING;
+
 
 /**
  * The <code>Schema</code> class is defined for each table to describe the details of the table's fields (columns).
@@ -57,7 +60,7 @@ import org.slf4j.LoggerFactory;
  */
 @SuppressWarnings("unused")
 @JsonIgnoreProperties(ignoreUnknown = true)
-public final class Schema {
+public final class Schema implements Serializable {
   private static final Logger LOGGER = LoggerFactory.getLogger(Schema.class);
 
   private String _schemaName;
@@ -71,7 +74,7 @@ public final class Schema {
   private List<String> _primaryKeyColumns;
 
   // Json ignored fields
-  private transient final Map<String, FieldSpec> _fieldSpecMap = new HashMap<>();
+  private final Map<String, FieldSpec> _fieldSpecMap = new HashMap<>();
   private transient final List<String> _dimensionNames = new ArrayList<>();
   private transient final List<String> _metricNames = new ArrayList<>();
   private transient final List<String> _dateTimeNames = new ArrayList<>();
@@ -500,6 +503,16 @@ public final class Schema {
     }
 
     /**
+     * Add single value dimensionFieldSpec with maxLength and a defaultNullValue
+     */
+    public SchemaBuilder addSingleValueDimension(String dimensionName, DataType dataType, int maxLength,
+        Object defaultNullValue) {
+      Preconditions.checkArgument(dataType == STRING, "The maxLength field only applies to STRING field right now");
+      _schema.addField(new DimensionFieldSpec(dimensionName, dataType, true, maxLength, defaultNullValue));
+      return this;
+    }
+
+    /**
      * Add multi value dimensionFieldSpec
      */
     public SchemaBuilder addMultiValueDimension(String dimensionName, DataType dataType) {
@@ -508,10 +521,20 @@ public final class Schema {
     }
 
     /**
-     * Add single value dimensionFieldSpec with defaultNullValue
+     * Add multi value dimensionFieldSpec with defaultNullValue
      */
     public SchemaBuilder addMultiValueDimension(String dimensionName, DataType dataType, Object defaultNullValue) {
       _schema.addField(new DimensionFieldSpec(dimensionName, dataType, false, defaultNullValue));
+      return this;
+    }
+
+    /**
+     * Add multi value dimensionFieldSpec with maxLength and a defaultNullValue
+     */
+    public SchemaBuilder addMultiValueDimension(String dimensionName, DataType dataType, int maxLength,
+        Object defaultNullValue) {
+      Preconditions.checkArgument(dataType == STRING, "The maxLength field only applies to STRING field right now");
+      _schema.addField(new DimensionFieldSpec(dimensionName, dataType, false, maxLength, defaultNullValue));
       return this;
     }
 

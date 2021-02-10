@@ -26,9 +26,10 @@ import java.util.Map;
 import java.util.Set;
 import org.apache.pinot.common.data.Segment;
 import org.apache.pinot.common.metadata.segment.OfflineSegmentZKMetadata;
-import org.apache.pinot.controller.helix.core.minion.ClusterInfoProvider;
+import org.apache.pinot.controller.helix.core.minion.ClusterInfoAccessor;
 import org.apache.pinot.core.common.MinionConstants;
 import org.apache.pinot.core.minion.PinotTaskConfig;
+import org.apache.pinot.spi.annotations.minion.TaskGenerator;
 import org.apache.pinot.spi.config.table.TableConfig;
 import org.apache.pinot.spi.config.table.TableTaskConfig;
 import org.apache.pinot.spi.config.table.TableType;
@@ -36,13 +37,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 
+@TaskGenerator
 public class ConvertToRawIndexTaskGenerator implements PinotTaskGenerator {
   private static final Logger LOGGER = LoggerFactory.getLogger(ConvertToRawIndexTaskGenerator.class);
 
-  private final ClusterInfoProvider _clusterInfoProvider;
+  private ClusterInfoAccessor _clusterInfoAccessor;
 
-  public ConvertToRawIndexTaskGenerator(ClusterInfoProvider clusterInfoProvider) {
-    _clusterInfoProvider = clusterInfoProvider;
+  @Override
+  public void init(ClusterInfoAccessor clusterInfoAccessor) {
+    _clusterInfoAccessor = clusterInfoAccessor;
   }
 
   @Override
@@ -56,7 +59,7 @@ public class ConvertToRawIndexTaskGenerator implements PinotTaskGenerator {
 
     // Get the segments that are being converted so that we don't submit them again
     Set<Segment> runningSegments =
-        TaskGeneratorUtils.getRunningSegments(MinionConstants.ConvertToRawIndexTask.TASK_TYPE, _clusterInfoProvider);
+        TaskGeneratorUtils.getRunningSegments(MinionConstants.ConvertToRawIndexTask.TASK_TYPE, _clusterInfoAccessor);
 
     for (TableConfig tableConfig : tableConfigs) {
       // Only generate tasks for OFFLINE tables
@@ -90,7 +93,7 @@ public class ConvertToRawIndexTaskGenerator implements PinotTaskGenerator {
 
       // Generate tasks
       int tableNumTasks = 0;
-      for (OfflineSegmentZKMetadata offlineSegmentZKMetadata : _clusterInfoProvider
+      for (OfflineSegmentZKMetadata offlineSegmentZKMetadata : _clusterInfoAccessor
           .getOfflineSegmentsMetadata(offlineTableName)) {
         // Generate up to tableMaxNumTasks tasks each time for each table
         if (tableNumTasks == tableMaxNumTasks) {
@@ -111,7 +114,7 @@ public class ConvertToRawIndexTaskGenerator implements PinotTaskGenerator {
           configs.put(MinionConstants.TABLE_NAME_KEY, offlineTableName);
           configs.put(MinionConstants.SEGMENT_NAME_KEY, segmentName);
           configs.put(MinionConstants.DOWNLOAD_URL_KEY, offlineSegmentZKMetadata.getDownloadUrl());
-          configs.put(MinionConstants.UPLOAD_URL_KEY, _clusterInfoProvider.getVipUrl() + "/segments");
+          configs.put(MinionConstants.UPLOAD_URL_KEY, _clusterInfoAccessor.getVipUrl() + "/segments");
           configs.put(MinionConstants.ORIGINAL_SEGMENT_CRC_KEY, String.valueOf(offlineSegmentZKMetadata.getCrc()));
           if (columnsToConvertConfig != null) {
             configs.put(MinionConstants.ConvertToRawIndexTask.COLUMNS_TO_CONVERT_KEY, columnsToConvertConfig);
