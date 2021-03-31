@@ -53,9 +53,16 @@ import static com.google.common.base.Preconditions.checkState;
 public class KafkaConfluentSchemaRegistryAvroMessageDecoder implements StreamMessageDecoder<byte[]> {
   private static final String SCHEMA_REGISTRY_REST_URL = "schema.registry.rest.url";
   private static final String SCHEMA_REGISTRY_OPTS_PREFIX = "schema.registry.";
+  // MYCUJOO
+  private static final String SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO = "schema.registry.basic.auth.user.info";
+  // END MYCUJOO
+
   private KafkaAvroDeserializer _deserializer;
   private RecordExtractor<Record> _avroRecordExtractor;
   private String _topicName;
+  // MYCUJOO
+  private String _basicAuthUserInfo;
+  // END MYCUJOO
 
   public RestService createRestService(String schemaRegistryUrl, Map<String, String> configs) {
     RestService restService = new RestService(schemaRegistryUrl);
@@ -80,9 +87,11 @@ public class KafkaConfluentSchemaRegistryAvroMessageDecoder implements StreamMes
       }
     }
 
+    // MYCUJOO
     BasicAuthCredentialProvider basicAuthCredentialProvider = new UserInfoCredentialProvider();
     basicAuthCredentialProvider.configure(configs);
     restService.setBasicAuthCredentialProvider(basicAuthCredentialProvider);
+    // END MYCUJOO
 
     if (!sslConfigs.isEmpty()) {
       SslFactory sslFactory = new SslFactory(Mode.CLIENT);
@@ -105,14 +114,25 @@ public class KafkaConfluentSchemaRegistryAvroMessageDecoder implements StreamMes
     _deserializer = new KafkaAvroDeserializer(schemaRegistryClient);
     Preconditions.checkNotNull(topicName, "Topic must be provided");
     _topicName = topicName;
+    // MYCUJOO
+    _basicAuthUserInfo = props.get(SCHEMA_REGISTRY_BASIC_AUTH_USER_INFO);
+    // END MYCUJOO
     _avroRecordExtractor = PluginManager.get().createInstance(AvroRecordExtractor.class.getName());
     _avroRecordExtractor.init(fieldsToRead, null);
   }
 
   @Override
   public GenericRow decode(byte[] payload, GenericRow destination) {
-    Record avroRecord = (Record) _deserializer.deserialize(_topicName, payload);
-    return _avroRecordExtractor.extract(avroRecord, destination);
+    // MYCUJOO
+    synchronized (_deserializer) {
+      String auth = "Basic " + java.util.Base64.getEncoder().encodeToString(_basicAuthUserInfo.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+      io.confluent.kafka.schemaregistry.client.rest.RestService.DEFAULT_REQUEST_PROPERTIES.put("Authorization", auth);
+
+      Record avroRecord = (Record) _deserializer.deserialize(_topicName, payload);
+      return _avroRecordExtractor.extract(avroRecord, destination);
+    }
+    // END MYCUJOO
   }
 
   @Override
